@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import connectlib.devices as devices
 import connectlib.media as media
 
 
@@ -26,10 +27,12 @@ def props(**overrides):
 
 class MediaTest(unittest.TestCase):
     def setUp(self):
-        self._orig = (media.get_prop, media.unpack_string_list)
+        self._orig_media = (media.get_prop, media.unpack_string_list)
+        self._orig_require = devices.require_device
 
     def tearDown(self):
-        media.get_prop, media.unpack_string_list = self._orig
+        media.get_prop, media.unpack_string_list = self._orig_media
+        devices.require_device = self._orig_require
 
     def _patch(self, values):
         media.get_prop = lambda bus, path, iface, name, default=None: values.get(name, default)
@@ -61,7 +64,7 @@ class MediaTest(unittest.TestCase):
         self.assertFalse(row["canSeek"])
 
     def _run_action(self, args):
-        media.require_device = lambda device_id: (None, device_id)
+        devices.require_device = lambda device_id: (None, device_id)
         sent = []
         media.send_action = lambda bus, device_id, action: sent.append(action)
         media.cmd_media_action(args)
@@ -80,7 +83,7 @@ class MediaTest(unittest.TestCase):
 
     def test_action_rejects_unknown(self):
         with self.assertRaises(SystemExit):
-            media.require_device = lambda device_id: (None, device_id)
+            devices.require_device = lambda device_id: (None, device_id)
             media.cmd_media_action(["d", "rewind"])
 
 
