@@ -1,11 +1,21 @@
 from __future__ import annotations
 
-import base64
+import binascii
+import os
 import re
+import stat
+import tempfile
 from pathlib import Path
 
 THUMB_DIR = Path.home() / ".cache" / "konnectarchy" / "thumbs"
+MAX_THUMB_CHARS = 1 << 20
+MAX_THUMB_BYTES = 1 << 19
+MAX_MESSAGE_BYTES = 1 << 21
+MAX_ATTACHMENTS = 16
+_B64_CHARS = 4096
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
+_B64_WHITESPACE = re.compile(r"\s+")
+_B64_STRICT = re.compile(r"[A-Za-z0-9+/]*={0,2}")
 
 
 def chip_label(mime: str, name: str) -> str:
@@ -39,26 +49,67 @@ def _thumb_path(key: str, mime: str, cache_dir: Path) -> Path:
     return cache_dir / f"{safe}.{ext}"
 
 
-def write_thumbnail(key: str, encoded: str, mime: str, cache_dir: Path | None = None) -> str:
-    blob = str(encoded or "").strip()
-    if not blob:
-        return ""
-    directory = cache_dir or THUMB_DIR
-    path = _thumb_path(key, mime, directory)
-    if path.exists() and path.stat().st_size > 0:
-        return path.as_uri()
-    try:
-        data = base64.b64decode(blob, validate=False)
-    except Exception:
-        return ""
-    if not data:
-        return ""
+def _decode_b64(compact: str, max_bytes: int) -> bytes | None:
+    if not compact or len(compact) % 4 == 1 or not _B64_STRICT.fullmatch(compact):
+        return None
+    out = bytearray()
+    for start in range(0, len(compact), _B64_CHARS):
+        piece = compact[start : start + _B64_CHARS]
+        if pad := len(piece) % 4:
+            piece += "=" * (4 - pad)
+        try:
+            out += binascii.a2b_base64(piece, strict_mode=True)
+        except ValueError:
+            return None
+        if len(out) > max_bytes:
+            return None
+    return bytes(out)
+
+
+def _publish_thumbnail(path: Path, data: bytes, directory: Path) -> str:
     directory.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(data)
+    try:
+        fd, tmp = tempfile.mkstemp(dir=directory, prefix=path.name + ".", suffix=".part")
+    except OSError:
+        return ""
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+        os.replace(tmp, path)
+    except OSError:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        return ""
     return path.as_uri()
 
 
-def parse_attachment(raw, cache_dir: Path | None = None) -> dict | None:
+def write_thumbnail(
+    key: str, encoded: str, mime: str, cache_dir: Path | None = None, budget: list[int] | None = None
+) -> str:
+    blob = str(encoded or "").strip()
+    if not blob or len(blob) > MAX_THUMB_CHARS:
+        return ""
+    directory = cache_dir or THUMB_DIR
+    path = _thumb_path(key, mime, directory)
+    try:
+        info = path.lstat()
+    except OSError:
+        info = None
+    if info is not None and stat.S_ISREG(info.st_mode) and info.st_size > 0:
+        return path.as_uri()
+    data = _decode_b64(_B64_WHITESPACE.sub("", blob), MAX_THUMB_BYTES)
+    if not data:
+        return ""
+    if budget is not None:
+        if len(data) > budget[0]:
+            return ""
+        budget[0] -= len(data)
+    return _publish_thumbnail(path, data, directory)
+
+
+def parse_attachment(raw, cache_dir: Path | None = None, budget: list[int] | None = None) -> dict | None:
     if raw is None:
         return None
     if isinstance(raw, dict):
@@ -79,7 +130,7 @@ def parse_attachment(raw, cache_dir: Path | None = None) -> dict | None:
     kind = "image" if mime.lower().startswith("image/") else "file"
     thumb = ""
     if kind == "image" and encoded:
-        thumb = write_thumbnail(name or str(part_id), encoded, mime, cache_dir)
+        thumb = write_thumbnail(name or str(part_id), encoded, mime, cache_dir, budget)
     if kind == "image" and not thumb:
         kind = "file"
     return {
@@ -94,8 +145,10 @@ def parse_attachment(raw, cache_dir: Path | None = None) -> dict | None:
 
 def parse_attachments(raw, cache_dir: Path | None = None) -> list[dict]:
     rows = []
-    for item in raw or []:
-        parsed = parse_attachment(item, cache_dir)
+    budget = [MAX_MESSAGE_BYTES]
+    items = raw if isinstance(raw, (list, tuple)) else []
+    for item in items[:MAX_ATTACHMENTS]:
+        parsed = parse_attachment(item, cache_dir, budget)
         if parsed:
             rows.append(parsed)
     return rows

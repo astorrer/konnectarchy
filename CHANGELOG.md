@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.2
+
+Attachment thumbnails are now bounded before decode: base64 is validated strictly, capped per thumbnail and per message, and attachment counts are capped, so a hostile payload cannot exhaust memory or disk. Thumbnails are published through an exclusive temporary file and atomically renamed into place, so a planted symlink can no longer redirect the write.
+
 ## 1.3.1
 
 `AGENTS.md` no longer ships with the plugin. It is untracked and ignored, so coding-agent instructions stay out of the tree that `omarchy plugin add` installs.
