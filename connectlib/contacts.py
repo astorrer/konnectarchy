@@ -3,11 +3,13 @@ from __future__ import annotations
 import quopri
 from pathlib import Path
 
-from .util import clamp_str
+from .util import clamp_id, clamp_str
 
 VCARDS_ROOT = Path.home() / ".local" / "share" / "kpeoplevcard"
 MAX_VCARD_CHARS = 1 << 20
+MAX_CONTACTS = 512
 MAX_CONTACT_FIELDS = 16
+MAX_CONTACT_BYTES = 8 << 20
 _CONTACTS_CACHE: dict[str, tuple[tuple[int, int], list[dict]]] = {}
 
 
@@ -104,7 +106,7 @@ def parse_vcard(text: str) -> dict | None:
 
 
 def load_contacts(device_id: str, root: Path | None = None) -> list[dict]:
-    directory = (root or VCARDS_ROOT) / f"kdeconnect-{device_id}"
+    directory = (root or VCARDS_ROOT) / f"kdeconnect-{clamp_id(device_id)}"
     cache_key = str(directory)
     stamp = (0, 0)
     if directory.is_dir():
@@ -114,12 +116,19 @@ def load_contacts(device_id: str, root: Path | None = None) -> list[dict]:
         if cached and cached[0] == stamp:
             return cached[1]
         contacts = []
+        used_bytes = 0
         for path in files:
+            if len(contacts) >= MAX_CONTACTS:
+                break
             try:
                 with path.open(encoding="utf-8", errors="replace") as handle:
-                    parsed = parse_vcard(handle.read(MAX_VCARD_CHARS))
+                    text = handle.read(MAX_VCARD_CHARS)
             except OSError:
                 continue
+            used_bytes += len(text.encode("utf-8", errors="replace"))
+            if used_bytes > MAX_CONTACT_BYTES:
+                break
+            parsed = parse_vcard(text)
             if parsed:
                 contacts.append(parsed)
         _CONTACTS_CACHE[cache_key] = (stamp, contacts)

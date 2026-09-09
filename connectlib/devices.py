@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import select
 import subprocess
+import time
 from pathlib import Path
 
 import gi
@@ -27,6 +29,8 @@ from .util import clamp_list, clamp_str, emit, fail
 
 MAX_DEVICES = 32
 MAX_PLUGINS = 64
+MAX_CLIPBOARD_BYTES = 4 << 20
+CLIPBOARD_TIMEOUT = 5
 
 
 def device_ids(bus) -> list[str]:
@@ -277,8 +281,53 @@ def cmd_send_clipboard(args: list[str]) -> None:
             [("sendClipboard", None)],
         )
     except GLib.Error:
-        clip = subprocess.run(["wl-paste", "--no-newline"], capture_output=True, text=True, check=False)
-        text = clip.stdout if clip.returncode == 0 else ""
+        proc = subprocess.Popen(
+            ["wl-paste", "--no-newline"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
+        deadline = time.monotonic() + CLIPBOARD_TIMEOUT
+        chunks: list[bytes] = []
+        total = 0
+        timed_out = False
+        oversized = False
+        try:
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    timed_out = True
+                    break
+                ready, _, _ = select.select([proc.stdout], [], [], remaining)
+                if not ready:
+                    timed_out = True
+                    break
+                chunk = proc.stdout.read(4096)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > MAX_CLIPBOARD_BYTES:
+                    oversized = True
+                    break
+                chunks.append(chunk)
+        finally:
+            try:
+                proc.kill()
+            except OSError:
+                pass
+            try:
+                proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=2)
+            try:
+                proc.stdout.close()
+            except OSError:
+                pass
+        if timed_out:
+            fail("Clipboard read timed out")
+        if oversized:
+            fail("Clipboard read failed")
+        text = b"".join(chunks).decode("utf-8", errors="replace").strip()
         if not text:
             fail("Clipboard is empty")
         cmd_share_text([device_id, text])

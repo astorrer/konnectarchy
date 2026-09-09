@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.4
+
+The clipboard fallback reads `wl-paste` incrementally under a 4 MiB budget and a 5 second deadline, killing and reaping the process as soon as either is crossed, so a stalled or hostile clipboard producer cannot force an unbounded buffer. Device and notification ids are sanitized on the way into D-Bus object paths, the contacts directory, and the SMS-app subprocess, so traversal characters in a malicious id can no longer redirect a read or a call.
+
 ## 1.3.3
 
 Every remote field is now bounded at the trust boundary, not just attachment thumbnails. SMS bodies, addresses, contact names, notification text, media metadata, device names, and D-Bus error strings are clamped per field; conversation lists, thread history, notification ids, addresses, and player lists are capped per response; vCards are read through a per-file cap; and the helper refuses to emit a JSON response over 4 MiB, so a hostile paired device or bus peer cannot exhaust the panel process.

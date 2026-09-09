@@ -5,10 +5,18 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from connectlib.notice import is_sms_notification, parse_notification
+from connectlib.notifications import notification_path
 from connectlib.util import MAX_LABEL_CHARS, MAX_TEXT_CHARS
 
 
 class NotificationsTest(unittest.TestCase):
+    def test_notification_path_sanitizes_ids(self):
+        path = notification_path("../dev", "../nid")
+        last = path.rsplit("/", 1)[-1]
+        self.assertNotIn("/", last)
+        self.assertNotIn("..", last)
+        self.assertEqual(notification_path("dev1", "1234").rsplit("/", 1)[-1], "1234")
+
     def test_parse_basic(self):
         item = parse_notification(
             "16",

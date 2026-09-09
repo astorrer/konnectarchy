@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 
 MAX_LABEL_CHARS = 256
 MAX_TEXT_CHARS = 4096
 MAX_EMIT_BYTES = 4 << 20
+MAX_ID_CHARS = 64
+_ID_UNSAFE = re.compile(r"[^A-Za-z0-9_.-]+")
 
 
 def clamp_str(value, limit: int = MAX_LABEL_CHARS) -> str:
@@ -14,6 +17,12 @@ def clamp_str(value, limit: int = MAX_LABEL_CHARS) -> str:
 
 def clamp_list(items, limit: int) -> list:
     return list(items[:limit]) if isinstance(items, (list, tuple)) else []
+
+
+def clamp_id(value) -> str:
+    text = str(value or "").strip()
+    text = _ID_UNSAFE.sub("_", text).strip("._")
+    return text[:MAX_ID_CHARS]
 
 
 def emit(payload: dict) -> None:

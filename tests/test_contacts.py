@@ -75,6 +75,55 @@ END:VCARD
             self.assertEqual(loaded[0]["name"], "Early Name")
             self.assertEqual(loaded[0]["phones"], [])
 
+    def test_load_caps_contact_count(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = root / "kdeconnect-many"
+            folder.mkdir()
+            n = contacts.MAX_CONTACTS + 50
+            for i in range(n):
+                (folder / f"c{i}.vcf").write_text(
+                    f"BEGIN:VCARD\nFN:Contact {i}\nTEL:+1555000{i:04d}\nEND:VCARD\n",
+                    encoding="utf-8",
+                )
+            loaded = contacts.load_contacts("many", root)
+            self.assertEqual(len(loaded), contacts.MAX_CONTACTS)
+
+    def test_load_caps_aggregate_bytes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = root / "kdeconnect-agg"
+            folder.mkdir()
+            n = (contacts.MAX_CONTACT_BYTES // contacts.MAX_VCARD_CHARS) + 4
+            for i in range(n):
+                filler = "NOTE:" + "x" * contacts.MAX_VCARD_CHARS + "\n"
+                (folder / f"big{i}.vcf").write_text(
+                    f"BEGIN:VCARD\nFN:Big Contact {i}\n{filler}TEL:+1555000{i:04d}\nEND:VCARD\n",
+                    encoding="utf-8",
+                )
+            loaded = contacts.load_contacts("agg", root)
+            self.assertLess(len(loaded), n)
+
+    def test_load_contacts_sanitizes_device_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            real = root / "kdeconnect-safe"
+            real.mkdir()
+            (real / "one.vcf").write_text(
+                "BEGIN:VCARD\nFN:Gabby Storrer\nTEL;CELL:+1-801-865-8491\nEND:VCARD\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(len(contacts.load_contacts("safe", root)), 1)
+            victim = root / "victim"
+            victim.mkdir()
+            (victim / "two.vcf").write_text(
+                "BEGIN:VCARD\nFN:Bill Nye\nTEL:+1-252-000-0000\nEND:VCARD\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(contacts.load_contacts("safe/../victim", root), [])
+            self.assertEqual(contacts.load_contacts("safe/../../victim", root), [])
+            self.assertEqual(contacts.load_contacts("../../escape", root), [])
+
     def test_load_and_title(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

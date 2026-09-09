@@ -19,7 +19,7 @@ from .bus import (
 from .contacts import annotate_message, load_contacts
 from .devices import require_device
 from .messages import parse_message
-from .util import clamp_list, emit, fail
+from .util import clamp_id, clamp_list, emit, fail
 
 MAX_CONVERSATIONS = 256
 MAX_THREAD_MESSAGES = 256
@@ -216,7 +216,7 @@ def cmd_sms_app(args: list[str]) -> None:
         if not app:
             fail("kdeconnect-sms is not installed")
         subprocess.Popen(
-            [app, "--device", device_id],
+            [app, "--device", clamp_id(device_id)],
             start_new_session=True,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,

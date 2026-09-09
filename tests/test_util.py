@@ -7,7 +7,14 @@ from contextlib import redirect_stdout
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from connectlib.util import MAX_EMIT_BYTES, MAX_LABEL_CHARS, clamp_list, clamp_str, emit
+from connectlib.util import (
+    MAX_EMIT_BYTES,
+    MAX_LABEL_CHARS,
+    clamp_id,
+    clamp_list,
+    clamp_str,
+    emit,
+)
 
 
 class UtilTest(unittest.TestCase):
@@ -17,6 +24,15 @@ class UtilTest(unittest.TestCase):
         self.assertEqual(clamp_str("abc"), "abc")
         self.assertEqual(clamp_str("abcdef", 3), "abc")
         self.assertEqual(len(clamp_str("x" * 999)), MAX_LABEL_CHARS)
+
+    def test_clamp_id(self):
+        self.assertEqual(clamp_id("android-abc123"), "android-abc123")
+        self.assertEqual(clamp_id(""), "")
+        self.assertEqual(len(clamp_id("x" * 200)), 64)
+        self.assertNotIn("/", clamp_id("../../escape"))
+        self.assertNotIn("\\", clamp_id("a\\b"))
+        self.assertNotIn(" ", clamp_id("a b"))
+        self.assertEqual(clamp_id("../safe"), "safe")
 
     def test_clamp_list(self):
         self.assertEqual(clamp_list(None, 3), [])

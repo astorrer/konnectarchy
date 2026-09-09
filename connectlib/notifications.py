@@ -8,7 +8,7 @@ from gi.repository import GLib
 from .bus import PROPS_IFACE, call, plugin_path
 from .devices import require_device
 from .notice import parse_notification
-from .util import clamp_list, clamp_str, emit, fail
+from .util import clamp_id, clamp_list, clamp_str, emit, fail
 
 NOTIF_IFACE = "org.kde.kdeconnect.device.notifications"
 ITEM_IFACE = "org.kde.kdeconnect.device.notifications.notification"
@@ -16,7 +16,7 @@ MAX_NOTIFICATIONS = 128
 
 
 def notification_path(device_id: str, nid: str) -> str:
-    return f"{plugin_path(device_id, 'notifications')}/{nid}"
+    return f"{plugin_path(device_id, 'notifications')}/{clamp_id(nid)}"
 
 
 def notification_ids(bus, device_id: str) -> list[str]:

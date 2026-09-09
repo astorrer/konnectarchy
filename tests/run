@@ -26,6 +26,7 @@ run "messages" python3 tests/test_messages.py
 run "sms" python3 tests/test_sms.py
 run "notifications" python3 tests/test_notifications.py
 run "media" python3 tests/test_media.py
+run "devices" python3 tests/test_devices.py
 run "setup" python3 tests/test_setup.py
 
 if command -v omarchy >/dev/null 2>&1; then
