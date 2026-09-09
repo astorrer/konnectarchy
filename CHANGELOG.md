@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.3
+
+Every remote field is now bounded at the trust boundary, not just attachment thumbnails. SMS bodies, addresses, contact names, notification text, media metadata, device names, and D-Bus error strings are clamped per field; conversation lists, thread history, notification ids, addresses, and player lists are capped per response; vCards are read through a per-file cap; and the helper refuses to emit a JSON response over 4 MiB, so a hostile paired device or bus peer cannot exhaust the panel process.
+
 ## 1.3.2
 
 Attachment thumbnails are now bounded before decode: base64 is validated strictly, capped per thumbnail and per message, and attachment counts are capped, so a hostile payload cannot exhaust memory or disk. Thumbnails are published through an exclusive temporary file and atomically renamed into place, so a planted symlink can no longer redirect the write.

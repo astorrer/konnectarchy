@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.astorrer.konnectarchy",
   "name": "Konnectarchy",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "author": "Aaron Storrer",
   "license": "MIT",
   "description": "Phone connect for the Omarchy bar. Pair a phone over the KDE Connect protocol, then ping, ring, share files, send the clipboard, control media, read notifications, and read or send SMS.",

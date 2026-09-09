@@ -3,7 +3,11 @@ from __future__ import annotations
 import quopri
 from pathlib import Path
 
+from .util import clamp_str
+
 VCARDS_ROOT = Path.home() / ".local" / "share" / "kpeoplevcard"
+MAX_VCARD_CHARS = 1 << 20
+MAX_CONTACT_FIELDS = 16
 _CONTACTS_CACHE: dict[str, tuple[tuple[int, int], list[dict]]] = {}
 
 
@@ -77,7 +81,7 @@ def parse_vcard(text: str) -> dict | None:
         prop = key.split(";", 1)[0].upper()
         if prop == "PHOTO":
             continue
-        decoded = _decode_vcard_value(key, value)
+        decoded = clamp_str(_decode_vcard_value(key, value))
         if not decoded:
             continue
         if prop == "FN":
@@ -88,10 +92,10 @@ def parse_vcard(text: str) -> dict | None:
             family = parts[0].strip() if parts else ""
             structured = " ".join(part for part in (given, family) if part)
         elif prop == "TEL":
-            if decoded not in phones:
+            if decoded not in phones and len(phones) < MAX_CONTACT_FIELDS:
                 phones.append(decoded)
         elif prop == "EMAIL":
-            if decoded not in emails:
+            if decoded not in emails and len(emails) < MAX_CONTACT_FIELDS:
                 emails.append(decoded)
     display = name or structured
     if not display and not phones and not emails:
@@ -112,7 +116,8 @@ def load_contacts(device_id: str, root: Path | None = None) -> list[dict]:
         contacts = []
         for path in files:
             try:
-                parsed = parse_vcard(path.read_text(encoding="utf-8", errors="replace"))
+                with path.open(encoding="utf-8", errors="replace") as handle:
+                    parsed = parse_vcard(handle.read(MAX_VCARD_CHARS))
             except OSError:
                 continue
             if parsed:

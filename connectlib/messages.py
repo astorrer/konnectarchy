@@ -7,15 +7,25 @@ import stat
 import tempfile
 from pathlib import Path
 
+from .util import MAX_TEXT_CHARS, clamp_list, clamp_str
+
 THUMB_DIR = Path.home() / ".cache" / "konnectarchy" / "thumbs"
 MAX_THUMB_CHARS = 1 << 20
 MAX_THUMB_BYTES = 1 << 19
 MAX_MESSAGE_BYTES = 1 << 21
 MAX_ATTACHMENTS = 16
+MAX_ADDRESSES = 32
 _B64_CHARS = 4096
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
 _B64_WHITESPACE = re.compile(r"\s+")
 _B64_STRICT = re.compile(r"[A-Za-z0-9+/]*={0,2}")
+
+
+def _to_int(value) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def chip_label(mime: str, name: str) -> str:
@@ -113,18 +123,18 @@ def parse_attachment(raw, cache_dir: Path | None = None, budget: list[int] | Non
     if raw is None:
         return None
     if isinstance(raw, dict):
-        part_id = int(raw.get("part_id") or raw.get("partId") or raw.get("partID") or 0)
-        mime = str(raw.get("mime_type") or raw.get("mime") or raw.get("mimeType") or "")
+        part_id = _to_int(raw.get("part_id") or raw.get("partId") or raw.get("partID"))
+        mime = clamp_str(raw.get("mime_type") or raw.get("mime") or raw.get("mimeType"))
         encoded = str(raw.get("encoded_thumbnail") or raw.get("thumb") or raw.get("encodedThumbnail") or "")
-        name = str(raw.get("unique_identifier") or raw.get("name") or raw.get("uniqueIdentifier") or "")
+        name = clamp_str(raw.get("unique_identifier") or raw.get("name") or raw.get("uniqueIdentifier"))
     elif isinstance(raw, (list, tuple)) and len(raw) >= 2:
         try:
             part_id = int(raw[0] or 0)
         except (TypeError, ValueError):
             return None
-        mime = str(raw[1] or "")
+        mime = clamp_str(raw[1])
         encoded = str(raw[2] or "") if len(raw) > 2 else ""
-        name = str(raw[3] or "") if len(raw) > 3 else ""
+        name = clamp_str(raw[3]) if len(raw) > 3 else ""
     else:
         return None
     kind = "image" if mime.lower().startswith("image/") else "file"
@@ -158,19 +168,19 @@ def parse_message(raw, cache_dir: Path | None = None) -> dict | None:
     if raw is None:
         return None
     if isinstance(raw, dict):
-        body = str(raw.get("body") or "")
-        addresses = [str(item) for item in (raw.get("addresses") or [])]
+        body = clamp_str(raw.get("body"), MAX_TEXT_CHARS)
+        addresses = [clamp_str(item) for item in clamp_list(raw.get("addresses"), MAX_ADDRESSES)]
         attachments = parse_attachments(raw.get("attachments") or [], cache_dir)
-        count = int(raw.get("attachmentCount") or 0) or len(attachments)
+        count = _to_int(raw.get("attachmentCount")) or len(attachments)
         return {
-            "event": int(raw.get("event") or 0),
+            "event": _to_int(raw.get("event")),
             "body": body,
             "addresses": addresses,
-            "date": int(raw.get("date") or 0),
-            "type": int(raw.get("type") or 0),
-            "read": int(raw.get("read") or 0),
-            "threadId": int(raw.get("threadId") or 0),
-            "id": int(raw.get("id") or 0),
+            "date": _to_int(raw.get("date")),
+            "type": _to_int(raw.get("type")),
+            "read": _to_int(raw.get("read")),
+            "threadId": _to_int(raw.get("threadId")),
+            "id": _to_int(raw.get("id")),
             "fromMe": bool(raw.get("fromMe")),
             "attachmentCount": count,
             "attachments": attachments,
@@ -178,26 +188,26 @@ def parse_message(raw, cache_dir: Path | None = None) -> dict | None:
     if not isinstance(raw, (list, tuple)) or len(raw) < 8:
         return None
     addresses = []
-    for item in raw[2] or []:
+    for item in clamp_list(raw[2], MAX_ADDRESSES):
         if isinstance(item, (list, tuple)) and item:
-            addresses.append(str(item[0]))
+            addresses.append(clamp_str(item[0]))
         else:
-            addresses.append(str(item))
+            addresses.append(clamp_str(item))
     unique = []
     for address in addresses:
         if address and address not in unique:
             unique.append(address)
-    msg_type = int(raw[4] or 0)
+    msg_type = _to_int(raw[4])
     attachments = parse_attachments(raw[9] if len(raw) > 9 else [], cache_dir)
     return {
-        "event": int(raw[0] or 0),
-        "body": str(raw[1] or ""),
+        "event": _to_int(raw[0]),
+        "body": clamp_str(raw[1], MAX_TEXT_CHARS),
         "addresses": unique,
-        "date": int(raw[3] or 0),
+        "date": _to_int(raw[3]),
         "type": msg_type,
-        "read": int(raw[5] or 0),
-        "threadId": int(raw[6] or 0),
-        "id": int(raw[7] or 0),
+        "read": _to_int(raw[5]),
+        "threadId": _to_int(raw[6]),
+        "id": _to_int(raw[7]),
         "fromMe": msg_type == 2,
         "attachmentCount": len(attachments),
         "attachments": attachments,

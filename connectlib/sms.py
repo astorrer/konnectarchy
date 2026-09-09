@@ -19,14 +19,17 @@ from .bus import (
 from .contacts import annotate_message, load_contacts
 from .devices import require_device
 from .messages import parse_message
-from .util import emit, fail
+from .util import clamp_list, emit, fail
+
+MAX_CONVERSATIONS = 256
+MAX_THREAD_MESSAGES = 256
 
 
 def active_conversations(bus, device_id: str) -> list[dict]:
     contacts = load_contacts(device_id)
     result = call(bus, device_path(device_id), CONV_IFACE, "activeConversations", None)
     rows = []
-    for raw in result.unpack()[0]:
+    for raw in clamp_list(result.unpack()[0], MAX_CONVERSATIONS):
         message = parse_message(raw)
         if not message:
             continue
@@ -76,7 +79,9 @@ def collect_thread(bus, device_id: str, thread_id: int, start: int = 0, end: int
             raw = params.unpack()[0]
             message = parse_message(raw)
             if message and int(message["threadId"]) == thread_id:
-                messages[int(message["id"])] = message
+                key = int(message["id"])
+                if key in messages or len(messages) < MAX_THREAD_MESSAGES:
+                    messages[key] = message
                 quit_soon()
         elif signal == "conversationLoaded":
             packed = params.unpack()

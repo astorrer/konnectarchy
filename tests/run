@@ -20,8 +20,10 @@ run() {
 
 run "model" node tests/test_model.js
 run "manifest" python3 tests/test_manifest.py
+run "util" python3 tests/test_util.py
 run "contacts" python3 tests/test_contacts.py
 run "messages" python3 tests/test_messages.py
+run "sms" python3 tests/test_sms.py
 run "notifications" python3 tests/test_notifications.py
 run "media" python3 tests/test_media.py
 run "setup" python3 tests/test_setup.py

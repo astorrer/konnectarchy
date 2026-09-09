@@ -20,7 +20,7 @@ from .bus import (
     session_bus,
 )
 from .devices import device_ids, read_device, sort_devices
-from .util import emit, fail
+from .util import clamp_str, emit, fail
 
 DAEMON_CANDIDATES = (
     "/usr/lib/kdeconnectd",
@@ -65,16 +65,16 @@ def status_payload() -> dict:
     if not running:
         return payload
     try:
-        payload["announcedName"] = str(get_prop(bus, DAEMON_PATH, DAEMON_IFACE, "announcedName", "") or "")
+        payload["announcedName"] = clamp_str(get_prop(bus, DAEMON_PATH, DAEMON_IFACE, "announcedName", ""))
         if not payload["announcedName"]:
             try:
                 result = call(bus, DAEMON_PATH, DAEMON_IFACE, "announcedName", None)
-                payload["announcedName"] = str(result.unpack()[0])
+                payload["announcedName"] = clamp_str(result.unpack()[0])
             except GLib.Error:
                 pass
         payload["devices"] = sort_devices([read_device(bus, device_id) for device_id in device_ids(bus)])
     except GLib.Error as error:
-        payload["error"] = str(error.message)
+        payload["error"] = clamp_str(error.message)
     return payload
 
 

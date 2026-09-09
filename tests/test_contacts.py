@@ -6,6 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from connectlib import contacts
+from connectlib.util import MAX_LABEL_CHARS
 
 
 class ContactsTest(unittest.TestCase):
@@ -48,6 +49,31 @@ END:VCARD
         card = "BEGIN:VCARD\nFN;ENCODING=QUOTED-PRINTABLE:Caf=C3=A9\nTEL:+1-801-555-0100\nEND:VCARD\n"
         parsed = contacts.parse_vcard(card)
         self.assertEqual(parsed["name"], "Café")
+
+    def test_parse_vcard_caps_fields(self):
+        lines = ["BEGIN:VCARD", "FN:" + "N" * 999]
+        lines += [f"TEL:+1801555{i:04d}" for i in range(contacts.MAX_CONTACT_FIELDS + 10)]
+        lines += [f"EMAIL:user{i}@example.com" for i in range(contacts.MAX_CONTACT_FIELDS + 10)]
+        lines.append("END:VCARD")
+        parsed = contacts.parse_vcard("\n".join(lines))
+        self.assertEqual(len(parsed["name"]), MAX_LABEL_CHARS)
+        self.assertEqual(len(parsed["phones"]), contacts.MAX_CONTACT_FIELDS)
+        self.assertEqual(len(parsed["emails"]), contacts.MAX_CONTACT_FIELDS)
+
+    def test_load_caps_file_read(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = root / "kdeconnect-cap"
+            folder.mkdir()
+            filler = "NOTE:" + "x" * contacts.MAX_VCARD_CHARS + "\n"
+            (folder / "big.vcf").write_text(
+                "BEGIN:VCARD\nFN:Early Name\n" + filler + "TEL:+18015550100\nEND:VCARD\n",
+                encoding="utf-8",
+            )
+            loaded = contacts.load_contacts("cap", root)
+            self.assertEqual(len(loaded), 1)
+            self.assertEqual(loaded[0]["name"], "Early Name")
+            self.assertEqual(loaded[0]["phones"], [])
 
     def test_load_and_title(self):
         with tempfile.TemporaryDirectory() as tmp:

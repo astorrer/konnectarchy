@@ -5,6 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from connectlib.notice import is_sms_notification, parse_notification
+from connectlib.util import MAX_LABEL_CHARS, MAX_TEXT_CHARS
 
 
 class NotificationsTest(unittest.TestCase):
@@ -50,6 +51,25 @@ class NotificationsTest(unittest.TestCase):
         self.assertEqual(item["id"], "1")
         self.assertEqual(item["title"], "")
         self.assertFalse(item["canReply"])
+
+    def test_parse_clamps_remote_fields(self):
+        item = parse_notification(
+            "n" * 999,
+            {
+                "appName": "a" * 999,
+                "title": "t" * 999,
+                "text": "x" * (MAX_TEXT_CHARS + 100),
+                "ticker": "k" * (MAX_TEXT_CHARS + 100),
+                "replyId": "r" * 999,
+            },
+        )
+        self.assertEqual(len(item["id"]), MAX_LABEL_CHARS)
+        self.assertEqual(len(item["appName"]), MAX_LABEL_CHARS)
+        self.assertEqual(len(item["title"]), MAX_LABEL_CHARS)
+        self.assertEqual(len(item["text"]), MAX_TEXT_CHARS)
+        self.assertEqual(len(item["ticker"]), MAX_TEXT_CHARS)
+        self.assertEqual(len(item["replyId"]), MAX_LABEL_CHARS)
+        self.assertTrue(item["canReply"])
 
     def test_sms_app_names(self):
         self.assertTrue(is_sms_notification({"appName": "Messages"}))

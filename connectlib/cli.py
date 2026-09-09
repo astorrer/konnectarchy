@@ -33,7 +33,7 @@ from .sms import (
     cmd_sms_reply,
     cmd_sms_send,
 )
-from .util import fail
+from .util import clamp_str, fail
 
 COMMANDS = {
     "status": cmd_status,
@@ -75,4 +75,4 @@ def main() -> None:
     try:
         handler(sys.argv[2:])
     except GLib.Error as error:
-        fail(error.message)
+        fail(clamp_str(error.message))

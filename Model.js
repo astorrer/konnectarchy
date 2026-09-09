@@ -1,4 +1,4 @@
-var PLUGIN_VERSION = "1.3.2"
+var PLUGIN_VERSION = "1.3.3"
 var PROJECT_URL = "https://github.com/astorrer/konnectarchy"
 
 function scrollFlickToItem(flick, item, margin) {

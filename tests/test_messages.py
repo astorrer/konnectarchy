@@ -8,6 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from connectlib.messages import (
+    MAX_ADDRESSES,
     MAX_ATTACHMENTS,
     MAX_MESSAGE_BYTES,
     MAX_THUMB_BYTES,
@@ -18,6 +19,7 @@ from connectlib.messages import (
     parse_message,
     write_thumbnail,
 )
+from connectlib.util import MAX_LABEL_CHARS, MAX_TEXT_CHARS
 
 TINY_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
 
@@ -86,6 +88,49 @@ class MessagesTest(unittest.TestCase):
     def test_parse_rejects_junk(self):
         self.assertIsNone(parse_message(None))
         self.assertIsNone(parse_message([1, 2, 3]))
+
+    def test_parse_dict_clamps_remote_fields(self):
+        message = parse_message(
+            {
+                "body": "b" * (MAX_TEXT_CHARS + 500),
+                "addresses": [f"+1801555{i:04d}" for i in range(MAX_ADDRESSES + 8)],
+                "threadId": "junk",
+                "id": None,
+                "date": "x",
+            }
+        )
+        self.assertEqual(len(message["body"]), MAX_TEXT_CHARS)
+        self.assertEqual(len(message["addresses"]), MAX_ADDRESSES)
+        self.assertEqual(message["threadId"], 0)
+        self.assertEqual(message["id"], 0)
+        self.assertEqual(message["date"], 0)
+
+    def test_parse_dict_rejects_non_list_addresses(self):
+        message = parse_message({"body": "hi", "addresses": "+18015550100"})
+        self.assertEqual(message["addresses"], [])
+
+    def test_parse_tuple_clamps_remote_fields(self):
+        raw = (
+            0,
+            "b" * (MAX_TEXT_CHARS + 10),
+            [(f"+1801555{i:04d}",) for i in range(MAX_ADDRESSES + 5)],
+            "x",
+            1,
+            0,
+            44,
+            12,
+        )
+        message = parse_message(raw)
+        self.assertEqual(len(message["body"]), MAX_TEXT_CHARS)
+        self.assertEqual(len(message["addresses"]), MAX_ADDRESSES)
+        self.assertEqual(message["date"], 0)
+        self.assertEqual(message["id"], 12)
+
+    def test_parse_attachment_clamps_name_and_mime(self):
+        parsed = parse_attachment({"part_id": "junk", "mime": "a/" + "m" * 500, "name": "n" * 500})
+        self.assertEqual(parsed["partId"], 0)
+        self.assertEqual(len(parsed["mime"]), MAX_LABEL_CHARS)
+        self.assertEqual(len(parsed["name"]), MAX_LABEL_CHARS)
 
     def test_thumbnail_rejects_invalid_base64(self):
         with tempfile.TemporaryDirectory() as tmp:

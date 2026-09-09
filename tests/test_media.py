@@ -55,6 +55,25 @@ class MediaTest(unittest.TestCase):
         self._patch({})
         self.assertIsNone(media.read_media(None, "d"))
 
+    def test_read_media_clamps_remote_fields(self):
+        from connectlib.util import MAX_LABEL_CHARS
+
+        self._patch(
+            props(
+                title="t" * 999,
+                artist="a" * 999,
+                album="b" * 999,
+                player="p" * 999,
+                playerList=[f"p{i}" for i in range(media.MAX_PLAYERS + 10)],
+            )
+        )
+        row = media.read_media(None, "d")
+        self.assertEqual(len(row["title"]), MAX_LABEL_CHARS)
+        self.assertEqual(len(row["artist"]), MAX_LABEL_CHARS)
+        self.assertEqual(len(row["album"]), MAX_LABEL_CHARS)
+        self.assertEqual(len(row["player"]), MAX_LABEL_CHARS)
+        self.assertEqual(len(row["players"]), media.MAX_PLAYERS)
+
     def test_read_media_coerces_defaults(self):
         self._patch(props(position="x", length=None, volume=3.5, canSeek=1))
         row = media.read_media(None, "d")
