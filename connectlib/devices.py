@@ -12,6 +12,7 @@ import gi
 gi.require_version("Gio", "2.0")
 from gi.repository import GLib
 
+from . import bound
 from .bus import (
     BUS_NAME,
     DAEMON_IFACE,
@@ -27,10 +28,10 @@ from .bus import (
     unpack_string_list,
 )
 from .media import read_media
-from .util import clamp_list, clamp_str, emit, fail, resolve_executable
+from .util import emit, fail, resolve_executable
 
-MAX_DEVICES = 32
-MAX_PLUGINS = 64
+MAX_DEVICES = bound.MAX_DEVICES
+MAX_PLUGINS = bound.MAX_PLUGINS
 MAX_CLIPBOARD_BYTES = 4 << 20
 CLIPBOARD_TIMEOUT = 5
 WL_PASTE_CANDIDATES = (
@@ -51,7 +52,7 @@ def device_ids(bus) -> list[str]:
         ],
     )
     ids = result.unpack()[0] if result.n_children() else []
-    return [clamp_str(item) for item in clamp_list(ids, MAX_DEVICES)]
+    return bound.strings(ids, bound.MAX_DEVICES)
 
 
 def plugin_names(bus, device_id: str) -> list[str]:
@@ -63,8 +64,7 @@ def plugin_names(bus, device_id: str) -> list[str]:
         except GLib.Error:
             names = []
     cleaned = []
-    for name in clamp_list(names, MAX_PLUGINS):
-        text = clamp_str(name)
+    for text in bound.strings(names, bound.MAX_PLUGINS):
         if text.startswith("kdeconnect_"):
             text = text.split("_", 1)[-1]
         cleaned.append(text)
@@ -128,15 +128,15 @@ def read_device(bus, device_id: str) -> dict:
             media = None
     return {
         "id": device_id,
-        "name": clamp_str(get_prop(bus, path, DEVICE_IFACE, "name", device_id) or device_id),
-        "type": clamp_str(get_prop(bus, path, DEVICE_IFACE, "type", "")),
+        "name": bound.label(get_prop(bus, path, DEVICE_IFACE, "name", device_id) or device_id),
+        "type": bound.label(get_prop(bus, path, DEVICE_IFACE, "type", "")),
         "reachable": bool(get_prop(bus, path, DEVICE_IFACE, "isReachable", False)),
         "paired": bool(get_prop(bus, path, DEVICE_IFACE, "isPaired", False)),
         "pairRequested": bool(get_prop(bus, path, DEVICE_IFACE, "isPairRequested", False)),
         "pairRequestedByPeer": bool(get_prop(bus, path, DEVICE_IFACE, "isPairRequestedByPeer", False)),
         "battery": battery,
         "charging": charging,
-        "networkType": clamp_str(network_type),
+        "networkType": bound.label(network_type),
         "networkStrength": int(network_strength) if isinstance(network_strength, int) else -1,
         "plugins": plugins,
         "hasSms": has_plugin(bus, device_id, "kdeconnect_sms") or "sms" in plugins,

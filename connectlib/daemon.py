@@ -9,6 +9,7 @@ import gi
 gi.require_version("Gio", "2.0")
 from gi.repository import GLib
 
+from . import bound
 from .bus import (
     BUS_NAME,
     DAEMON_IFACE,
@@ -19,7 +20,7 @@ from .bus import (
     session_bus,
 )
 from .devices import device_ids, read_device, sort_devices
-from .util import clamp_str, emit, fail, resolve_executable
+from .util import emit, fail, resolve_executable
 
 DAEMON_CANDIDATES = (
     "/usr/lib/kdeconnectd",
@@ -66,16 +67,16 @@ def status_payload() -> dict:
     if not running:
         return payload
     try:
-        payload["announcedName"] = clamp_str(get_prop(bus, DAEMON_PATH, DAEMON_IFACE, "announcedName", ""))
+        payload["announcedName"] = bound.label(get_prop(bus, DAEMON_PATH, DAEMON_IFACE, "announcedName", ""))
         if not payload["announcedName"]:
             try:
                 result = call(bus, DAEMON_PATH, DAEMON_IFACE, "announcedName", None)
-                payload["announcedName"] = clamp_str(result.unpack()[0])
+                payload["announcedName"] = bound.label(result.unpack()[0])
             except GLib.Error:
                 pass
         payload["devices"] = sort_devices([read_device(bus, device_id) for device_id in device_ids(bus)])
     except GLib.Error as error:
-        payload["error"] = clamp_str(error.message)
+        payload["error"] = bound.label(error.message)
     return payload
 
 

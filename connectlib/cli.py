@@ -7,6 +7,7 @@ import gi
 gi.require_version("Gio", "2.0")
 from gi.repository import GLib
 
+from . import bound
 from .contacts import cmd_contacts
 from .daemon import cmd_autostart, cmd_start, cmd_status, cmd_stop
 from .devices import (
@@ -33,7 +34,7 @@ from .sms import (
     cmd_sms_reply,
     cmd_sms_send,
 )
-from .util import clamp_str, fail
+from .util import fail
 
 COMMANDS = {
     "status": cmd_status,
@@ -75,4 +76,4 @@ def main() -> None:
     try:
         handler(sys.argv[2:])
     except GLib.Error as error:
-        fail(clamp_str(error.message))
+        fail(bound.label(error.message))

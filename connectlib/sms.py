@@ -7,6 +7,7 @@ import gi
 gi.require_version("Gio", "2.0")
 from gi.repository import Gio, GLib
 
+from . import bound
 from .bus import (
     BUS_NAME,
     CONV_IFACE,
@@ -18,10 +19,10 @@ from .bus import (
 from .contacts import annotate_message, load_contacts
 from .devices import require_device
 from .messages import parse_message
-from .util import clamp_id, clamp_list, emit, fail, resolve_executable
+from .util import emit, fail, resolve_executable
 
-MAX_CONVERSATIONS = 256
-MAX_THREAD_MESSAGES = 256
+MAX_CONVERSATIONS = bound.MAX_CONVERSATIONS
+MAX_THREAD_MESSAGES = bound.MAX_THREAD_MESSAGES
 
 KDE_CONNECT_SMS_CANDIDATES = (
     "/usr/bin/kdeconnect-sms",
@@ -32,8 +33,11 @@ KDE_CONNECT_SMS_CANDIDATES = (
 def active_conversations(bus, device_id: str) -> list[dict]:
     contacts = load_contacts(device_id)
     result = call(bus, device_path(device_id), CONV_IFACE, "activeConversations", None)
+    convs = result.unpack()[0]
+    if not isinstance(convs, (list, tuple)):
+        convs = []
     rows = []
-    for raw in clamp_list(result.unpack()[0], MAX_CONVERSATIONS):
+    for raw in convs[:bound.MAX_CONVERSATIONS]:
         message = parse_message(raw)
         if not message:
             continue
@@ -84,7 +88,7 @@ def collect_thread(bus, device_id: str, thread_id: int, start: int = 0, end: int
             message = parse_message(raw)
             if message and int(message["threadId"]) == thread_id:
                 key = int(message["id"])
-                if key in messages or len(messages) < MAX_THREAD_MESSAGES:
+                if key in messages or len(messages) < bound.MAX_THREAD_MESSAGES:
                     messages[key] = message
                 quit_soon()
         elif signal == "conversationLoaded":
@@ -220,7 +224,7 @@ def cmd_sms_app(args: list[str]) -> None:
         if not app:
             fail("kdeconnect-sms is not installed")
         subprocess.Popen(
-            [app, "--device", clamp_id(device_id)],
+            [app, "--device", bound.ident(device_id)],
             start_new_session=True,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,

@@ -90,11 +90,11 @@ def try_call(bus, path: str, iface: str, methods: list[tuple[str, GLib.Variant |
     raise RuntimeError("no methods to call")
 
 
-from .util import clamp_id
+from . import bound
 
 
 def device_path(device_id: str) -> str:
-    return f"{DAEMON_PATH}/devices/{clamp_id(device_id)}"
+    return f"{DAEMON_PATH}/devices/{bound.ident(device_id)}"
 
 
 def plugin_path(device_id: str, plugin: str) -> str:
