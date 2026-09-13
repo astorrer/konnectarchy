@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import select
+import signal
 import subprocess
 import time
 from pathlib import Path
@@ -31,6 +33,11 @@ MAX_DEVICES = 32
 MAX_PLUGINS = 64
 MAX_CLIPBOARD_BYTES = 4 << 20
 CLIPBOARD_TIMEOUT = 5
+WL_PASTE_CANDIDATES = (
+    "/usr/bin/wl-paste",
+    "/usr/local/bin/wl-paste",
+    "/bin/wl-paste",
+)
 
 
 def device_ids(bus) -> list[str]:
@@ -271,6 +278,31 @@ def cmd_share_text(args: list[str]) -> None:
     emit({"ok": True})
 
 
+def _wl_paste_path() -> str:
+    for path in WL_PASTE_CANDIDATES:
+        if os.access(path, os.X_OK):
+            return path
+    return ""
+
+
+def _terminate_group(proc, timeout: float = 2) -> None:
+    try:
+        os.killpg(proc.pid, signal.SIGTERM)
+    except OSError:
+        pass
+    try:
+        proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            pass
+        try:
+            proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            proc.wait()
+
+
 def cmd_send_clipboard(args: list[str]) -> None:
     bus, device_id = require_device(args[0] if args else "")
     try:
@@ -281,12 +313,18 @@ def cmd_send_clipboard(args: list[str]) -> None:
             [("sendClipboard", None)],
         )
     except GLib.Error:
+        exe = _wl_paste_path()
+        if not exe:
+            fail("wl-paste is not installed")
         proc = subprocess.Popen(
-            ["wl-paste", "--no-newline"],
+            [exe, "--no-newline"],
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
+            start_new_session=True,
         )
         deadline = time.monotonic() + CLIPBOARD_TIMEOUT
+        fd = proc.stdout.fileno()
+        os.set_blocking(fd, False)
         chunks: list[bytes] = []
         total = 0
         timed_out = False
@@ -297,11 +335,14 @@ def cmd_send_clipboard(args: list[str]) -> None:
                 if remaining <= 0:
                     timed_out = True
                     break
-                ready, _, _ = select.select([proc.stdout], [], [], remaining)
+                ready, _, _ = select.select([fd], [], [], remaining)
                 if not ready:
                     timed_out = True
                     break
-                chunk = proc.stdout.read(4096)
+                try:
+                    chunk = os.read(fd, 4096)
+                except OSError:
+                    continue
                 if not chunk:
                     break
                 total += len(chunk)
@@ -310,15 +351,7 @@ def cmd_send_clipboard(args: list[str]) -> None:
                     break
                 chunks.append(chunk)
         finally:
-            try:
-                proc.kill()
-            except OSError:
-                pass
-            try:
-                proc.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait(timeout=2)
+            _terminate_group(proc)
             try:
                 proc.stdout.close()
             except OSError:

@@ -22,6 +22,7 @@ def _proc_with_output(data: bytes) -> MagicMock:
     rd, wr = os.pipe()
     proc = MagicMock()
     proc.stdout = os.fdopen(rd, "rb")
+    proc.pid = 999999
     proc.returncode = 0
 
     def _write():
@@ -41,11 +42,12 @@ def _proc_with_output(data: bytes) -> MagicMock:
 
 
 class ClipboardBoundsTest(unittest.TestCase):
+    @patch("os.killpg")
     @patch("connectlib.devices.require_device")
     @patch("connectlib.devices.try_call", side_effect=GLib.Error("no plugin"))
     @patch("connectlib.devices.cmd_share_text")
     @patch("subprocess.Popen")
-    def test_normal_clipboard_read(self, MockPopen, mock_share, mock_try, mock_req):
+    def test_normal_clipboard_read(self, MockPopen, mock_share, mock_try, mock_req, mock_killpg):
         mock_req.return_value = ("bus", "dev1")
         MockPopen.return_value = _proc_with_output(b"hello world")
 
@@ -56,11 +58,13 @@ class ClipboardBoundsTest(unittest.TestCase):
             cmd_send_clipboard(["dev1"])
 
         mock_share.assert_called_once_with(["dev1", "hello world"])
+        self.assertTrue(MockPopen.call_args.kwargs.get("start_new_session"))
 
+    @patch("os.killpg")
     @patch("connectlib.devices.require_device")
     @patch("connectlib.devices.try_call", side_effect=GLib.Error("no plugin"))
     @patch("subprocess.Popen")
-    def test_oversized_clipboard_fails(self, MockPopen, mock_try, mock_req):
+    def test_oversized_clipboard_fails(self, MockPopen, mock_try, mock_req, mock_killpg):
         mock_req.return_value = ("bus", "dev1")
         MockPopen.return_value = _proc_with_output(b"x" * (MAX_CLIPBOARD_BYTES + 1))
 
@@ -68,13 +72,14 @@ class ClipboardBoundsTest(unittest.TestCase):
 
         with self.assertRaises(SystemExit):
             cmd_send_clipboard(["dev1"])
-        MockPopen.return_value.kill.assert_called()
+        mock_killpg.assert_called()
 
+    @patch("os.killpg")
     @patch("connectlib.devices.require_device")
     @patch("connectlib.devices.try_call", side_effect=GLib.Error("no plugin"))
     @patch("connectlib.devices.cmd_share_text")
     @patch("subprocess.Popen")
-    def test_empty_clipboard_fails(self, MockPopen, mock_share, mock_try, mock_req):
+    def test_empty_clipboard_fails(self, MockPopen, mock_share, mock_try, mock_req, mock_killpg):
         mock_req.return_value = ("bus", "dev1")
         MockPopen.return_value = _proc_with_output(b"")
 
@@ -83,11 +88,12 @@ class ClipboardBoundsTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             cmd_send_clipboard(["dev1"])
 
+    @patch("os.killpg")
     @patch("connectlib.devices.select.select", return_value=([], [], []))
     @patch("connectlib.devices.require_device")
     @patch("connectlib.devices.try_call", side_effect=GLib.Error("no plugin"))
     @patch("subprocess.Popen")
-    def test_clipboard_timeout_fails(self, MockPopen, mock_try, mock_req, mock_select):
+    def test_clipboard_timeout_fails(self, MockPopen, mock_try, mock_req, mock_select, mock_killpg):
         mock_req.return_value = ("bus", "dev1")
         MockPopen.return_value = _proc_with_output(b"")
 
@@ -95,7 +101,61 @@ class ClipboardBoundsTest(unittest.TestCase):
 
         with self.assertRaises(SystemExit):
             cmd_send_clipboard(["dev1"])
-        MockPopen.return_value.kill.assert_called()
+        mock_killpg.assert_called()
+
+    @patch("os.killpg")
+    @patch("connectlib.devices.cmd_share_text")
+    @patch("connectlib.devices.try_call", side_effect=GLib.Error("no plugin"))
+    @patch("connectlib.devices.require_device")
+    @patch("subprocess.Popen")
+    def test_clipboard_without_wl_paste_fails(
+        self, MockPopen, mock_req, mock_try, mock_share, mock_killpg
+    ):
+        mock_req.return_value = ("bus", "dev1")
+        MockPopen.return_value = _proc_with_output(b"")
+
+        from connectlib.devices import cmd_send_clipboard
+
+        with patch("connectlib.devices._wl_paste_path", return_value=""):
+            with self.assertRaises(SystemExit):
+                cmd_send_clipboard(["dev1"])
+        self.assertFalse(MockPopen.called)
+
+    @patch("os.killpg")
+    @patch("connectlib.devices.require_device")
+    @patch("connectlib.devices.try_call", side_effect=GLib.Error("no plugin"))
+    @patch("connectlib.devices.cmd_share_text")
+    @patch("subprocess.Popen")
+    def test_fragment_then_stall_times_out(
+        self, MockPopen, mock_share, mock_try, mock_req, mock_killpg
+    ):
+        mock_req.return_value = ("bus", "dev1")
+        rd, wr = os.pipe()
+        os.write(wr, b"hi")
+        proc = MagicMock()
+        proc.stdout = os.fdopen(rd, "rb")
+        proc.pid = 999999
+        proc.returncode = 0
+        MockPopen.return_value = proc
+        calls = {"n": 0}
+
+        def fake_select(rlist, _wlist, _xlist, _timeout):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return (rlist, [], [])
+            return ([], [], [])
+
+        from connectlib.devices import cmd_send_clipboard
+
+        buf = io.StringIO()
+        with patch("connectlib.devices.select.select", side_effect=fake_select):
+            with redirect_stdout(buf):
+                with self.assertRaises(SystemExit):
+                    cmd_send_clipboard(["dev1"])
+        self.assertIn("Clipboard read timed out", buf.getvalue())
+        mock_share.assert_not_called()
+        mock_killpg.assert_called()
+        os.close(wr)
 
     def test_timeout_and_byte_cap_constants(self):
         self.assertGreater(CLIPBOARD_TIMEOUT, 0)

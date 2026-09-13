@@ -1,4 +1,5 @@
 #!/usr/bin/python3
+import os
 import sys
 import tempfile
 import unittest
@@ -103,6 +104,35 @@ END:VCARD
                 )
             loaded = contacts.load_contacts("agg", root)
             self.assertLess(len(loaded), n)
+
+    def test_scan_budget(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / "budget"
+            folder.mkdir()
+            n = contacts.MAX_SCAN_ENTRIES + 50
+            for i in range(n):
+                suffix = "vcf" if i % 2 == 0 else "dat"
+                (folder / f"f{i}.{suffix}").write_text("x", encoding="utf-8")
+            paths, _ = contacts._scan_vcards(folder)
+            self.assertLessEqual(len(paths), contacts.MAX_SCAN_ENTRIES)
+            for path in paths:
+                self.assertTrue(path.endswith(".vcf"))
+
+    def test_scan_ignores_symlinks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / "kdeconnect-syms"
+            folder.mkdir()
+            target = Path(tmp) / "outside.txt"
+            target.write_text(
+                "BEGIN:VCARD\nFN:Evil\nTEL:+15550000000\nEND:VCARD\n", encoding="utf-8"
+            )
+            os.symlink(target, folder / "evil.vcf")
+            (folder / "real.vcf").write_text(
+                "BEGIN:VCARD\nFN:Ok\nTEL:+15550000001\nEND:VCARD\n", encoding="utf-8"
+            )
+            loaded = contacts.load_contacts("syms", Path(tmp))
+            self.assertEqual(len(loaded), 1)
+            self.assertEqual(loaded[0]["name"], "Ok")
 
     def test_load_contacts_sanitizes_device_id(self):
         with tempfile.TemporaryDirectory() as tmp:

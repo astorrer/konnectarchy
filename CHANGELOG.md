@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.5
+
+Contact discovery no longer materializes the whole vCard directory. It scans incrementally with a hard entry budget (2048 entries) before the 512-contact and 8 MiB read limits apply, and refuses to follow symlinks, so a bloated or hostile synced contact directory cannot burn CPU or memory enumerating files it will never read. The clipboard fallback now launches a trusted `wl-paste` from a fixed candidate list, in a fresh process group with nonblocking descriptor reads under one absolute 5 second deadline, and TERM-then-KILLs and reaps the entire group, so a stalled or forking clipboard producer can no longer extend the read past the deadline or leak a pipe-holding descendant.
+
 ## 1.3.4
 
 The clipboard fallback reads `wl-paste` incrementally under a 4 MiB budget and a 5 second deadline, killing and reaping the process as soon as either is crossed, so a stalled or hostile clipboard producer cannot force an unbounded buffer. Device and notification ids are sanitized on the way into D-Bus object paths, the contacts directory, and the SMS-app subprocess, so traversal characters in a malicious id can no longer redirect a read or a call.

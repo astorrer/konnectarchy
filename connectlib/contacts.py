@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import quopri
 from pathlib import Path
 
@@ -10,6 +11,7 @@ MAX_VCARD_CHARS = 1 << 20
 MAX_CONTACTS = 512
 MAX_CONTACT_FIELDS = 16
 MAX_CONTACT_BYTES = 8 << 20
+MAX_SCAN_ENTRIES = 2048
 _CONTACTS_CACHE: dict[str, tuple[tuple[int, int], list[dict]]] = {}
 
 
@@ -105,36 +107,61 @@ def parse_vcard(text: str) -> dict | None:
     return {"name": display, "phones": phones, "emails": emails}
 
 
+def _scan_vcards(directory: Path) -> tuple[list[str], int]:
+    paths: list[str] = []
+    newest = 0
+    seen = 0
+    try:
+        with os.scandir(directory) as entries:
+            for entry in entries:
+                if seen >= MAX_SCAN_ENTRIES:
+                    break
+                seen += 1
+                try:
+                    if not entry.is_file(follow_symlinks=False):
+                        continue
+                except OSError:
+                    continue
+                if not entry.name.endswith(".vcf"):
+                    continue
+                try:
+                    info = entry.stat(follow_symlinks=False)
+                except OSError:
+                    continue
+                paths.append(entry.path)
+                if info.st_mtime_ns > newest:
+                    newest = info.st_mtime_ns
+    except OSError:
+        pass
+    return paths, newest
+
+
 def load_contacts(device_id: str, root: Path | None = None) -> list[dict]:
     directory = (root or VCARDS_ROOT) / f"kdeconnect-{clamp_id(device_id)}"
     cache_key = str(directory)
-    stamp = (0, 0)
-    if directory.is_dir():
-        files = [path for path in directory.glob("*.vcf") if path.is_file()]
-        stamp = (len(files), max((path.stat().st_mtime_ns for path in files), default=0))
-        cached = _CONTACTS_CACHE.get(cache_key)
-        if cached and cached[0] == stamp:
-            return cached[1]
-        contacts = []
-        used_bytes = 0
-        for path in files:
-            if len(contacts) >= MAX_CONTACTS:
-                break
-            try:
-                with path.open(encoding="utf-8", errors="replace") as handle:
-                    text = handle.read(MAX_VCARD_CHARS)
-            except OSError:
-                continue
-            used_bytes += len(text.encode("utf-8", errors="replace"))
-            if used_bytes > MAX_CONTACT_BYTES:
-                break
-            parsed = parse_vcard(text)
-            if parsed:
-                contacts.append(parsed)
-        _CONTACTS_CACHE[cache_key] = (stamp, contacts)
-        return contacts
-    _CONTACTS_CACHE[cache_key] = (stamp, [])
-    return []
+    files, newest = _scan_vcards(directory)
+    stamp = (len(files), newest)
+    cached = _CONTACTS_CACHE.get(cache_key)
+    if cached and cached[0] == stamp:
+        return cached[1]
+    contacts: list[dict] = []
+    used_bytes = 0
+    for path in files:
+        if len(contacts) >= MAX_CONTACTS:
+            break
+        try:
+            with open(path, encoding="utf-8", errors="replace") as handle:
+                text = handle.read(MAX_VCARD_CHARS)
+        except OSError:
+            continue
+        used_bytes += len(text.encode("utf-8", errors="replace"))
+        if used_bytes > MAX_CONTACT_BYTES:
+            break
+        parsed = parse_vcard(text)
+        if parsed:
+            contacts.append(parsed)
+    _CONTACTS_CACHE[cache_key] = (stamp, contacts)
+    return contacts
 
 
 def lookup_contact(address: str, contacts: list[dict] | None) -> dict | None:
