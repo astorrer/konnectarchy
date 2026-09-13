@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.0
+
+All remote-input caps are consolidated into one trust boundary, `connectlib/bound.py`. Every string, id, number, list, and byte buffer from the paired phone (device ids and props, notifications, conversations, SMS threads, media metadata, vCard files, attachment thumbnails) now passes through small bounded readers — `text`, `label`, `ident`, `num`, `flag`, `strings`, `mapping`, `Budget`, `scan_dir`, `read_file`, `b64_decode` — with every cap defined in one file, instead of ad-hoc `clamp_*` calls at each parse site. Output is byte-for-byte unchanged.
+
 ## 1.3.6
 
 Every subprocess spawn in `connectlib/` now resolves its binary only from an explicit absolute-path candidate list via `util.resolve_executable` — no `shutil.which` or bare PATH lookup remains for `kdeconnectd`, `pkill`, `kdeconnect-sms`, or `wl-paste`. The whole remote-input pipeline (enumerate -> stat -> read -> parse -> cache -> emit) is audited stage-by-stage per the checklist in `AGENTS.md`, with emission, device, notification, conversation, thread, contact, attachment, and thumbnail caps enforced at the earliest enumeration step, not after materialization.
