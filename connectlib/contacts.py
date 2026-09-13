@@ -1,17 +1,11 @@
 from __future__ import annotations
 
-import os
 import quopri
 from pathlib import Path
 
-from .util import clamp_id, clamp_str
+from . import bound
 
 VCARDS_ROOT = Path.home() / ".local" / "share" / "kpeoplevcard"
-MAX_VCARD_CHARS = 1 << 20
-MAX_CONTACTS = 512
-MAX_CONTACT_FIELDS = 16
-MAX_CONTACT_BYTES = 8 << 20
-MAX_SCAN_ENTRIES = 2048
 _CONTACTS_CACHE: dict[str, tuple[tuple[int, int], list[dict]]] = {}
 
 
@@ -85,7 +79,7 @@ def parse_vcard(text: str) -> dict | None:
         prop = key.split(";", 1)[0].upper()
         if prop == "PHOTO":
             continue
-        decoded = clamp_str(_decode_vcard_value(key, value))
+        decoded = bound.label(_decode_vcard_value(key, value))
         if not decoded:
             continue
         if prop == "FN":
@@ -108,36 +102,14 @@ def parse_vcard(text: str) -> dict | None:
 
 
 def _scan_vcards(directory: Path) -> tuple[list[str], int]:
-    paths: list[str] = []
-    newest = 0
-    seen = 0
-    try:
-        with os.scandir(directory) as entries:
-            for entry in entries:
-                if seen >= MAX_SCAN_ENTRIES:
-                    break
-                seen += 1
-                try:
-                    if not entry.is_file(follow_symlinks=False):
-                        continue
-                except OSError:
-                    continue
-                if not entry.name.endswith(".vcf"):
-                    continue
-                try:
-                    info = entry.stat(follow_symlinks=False)
-                except OSError:
-                    continue
-                paths.append(entry.path)
-                if info.st_mtime_ns > newest:
-                    newest = info.st_mtime_ns
-    except OSError:
-        pass
+    entries = bound.scan_dir(directory, ".vcf", bound.MAX_SCAN_ENTRIES)
+    paths = [p for (_n, p, _s, _m) in entries]
+    newest = max((m for (_n, _p, _s, m) in entries), default=0)
     return paths, newest
 
 
 def load_contacts(device_id: str, root: Path | None = None) -> list[dict]:
-    directory = (root or VCARDS_ROOT) / f"kdeconnect-{clamp_id(device_id)}"
+    directory = (root or VCARDS_ROOT) / f"kdeconnect-{bound.ident(device_id)}"
     cache_key = str(directory)
     files, newest = _scan_vcards(directory)
     stamp = (len(files), newest)
@@ -145,17 +117,15 @@ def load_contacts(device_id: str, root: Path | None = None) -> list[dict]:
     if cached and cached[0] == stamp:
         return cached[1]
     contacts: list[dict] = []
-    used_bytes = 0
+    budget = bound.Budget(bound.MAX_CONTACT_BYTES)
     for path in files:
         if len(contacts) >= MAX_CONTACTS:
             break
-        try:
-            with open(path, encoding="utf-8", errors="replace") as handle:
-                text = handle.read(MAX_VCARD_CHARS)
-        except OSError:
+        result = bound.read_file(path, bound.MAX_VCARD_CHARS, budget)
+        if result is None:
             continue
-        used_bytes += len(text.encode("utf-8", errors="replace"))
-        if used_bytes > MAX_CONTACT_BYTES:
+        text, over = result
+        if over:
             break
         parsed = parse_vcard(text)
         if parsed:
@@ -223,3 +193,10 @@ def annotate_message(message: dict, contacts: list[dict] | None = None) -> dict:
     message["names"] = names
     message["title"] = conversation_title(message, contacts)
     return message
+
+
+MAX_VCARD_CHARS = bound.MAX_VCARD_CHARS
+MAX_CONTACTS = bound.MAX_CONTACTS
+MAX_CONTACT_BYTES = bound.MAX_CONTACT_BYTES
+MAX_CONTACT_FIELDS = bound.MAX_CONTACT_FIELDS
+MAX_SCAN_ENTRIES = bound.MAX_SCAN_ENTRIES

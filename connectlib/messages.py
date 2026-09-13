@@ -1,31 +1,15 @@
 from __future__ import annotations
 
-import binascii
 import os
 import re
 import stat
 import tempfile
 from pathlib import Path
 
-from .util import MAX_TEXT_CHARS, clamp_list, clamp_str
+from . import bound
 
 THUMB_DIR = Path.home() / ".cache" / "konnectarchy" / "thumbs"
-MAX_THUMB_CHARS = 1 << 20
-MAX_THUMB_BYTES = 1 << 19
-MAX_MESSAGE_BYTES = 1 << 21
-MAX_ATTACHMENTS = 16
-MAX_ADDRESSES = 32
-_B64_CHARS = 4096
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
-_B64_WHITESPACE = re.compile(r"\s+")
-_B64_STRICT = re.compile(r"[A-Za-z0-9+/]*={0,2}")
-
-
-def _to_int(value) -> int:
-    try:
-        return int(value or 0)
-    except (TypeError, ValueError):
-        return 0
 
 
 def chip_label(mime: str, name: str) -> str:
@@ -59,23 +43,6 @@ def _thumb_path(key: str, mime: str, cache_dir: Path) -> Path:
     return cache_dir / f"{safe}.{ext}"
 
 
-def _decode_b64(compact: str, max_bytes: int) -> bytes | None:
-    if not compact or len(compact) % 4 == 1 or not _B64_STRICT.fullmatch(compact):
-        return None
-    out = bytearray()
-    for start in range(0, len(compact), _B64_CHARS):
-        piece = compact[start : start + _B64_CHARS]
-        if pad := len(piece) % 4:
-            piece += "=" * (4 - pad)
-        try:
-            out += binascii.a2b_base64(piece, strict_mode=True)
-        except ValueError:
-            return None
-        if len(out) > max_bytes:
-            return None
-    return bytes(out)
-
-
 def _publish_thumbnail(path: Path, data: bytes, directory: Path) -> str:
     directory.mkdir(parents=True, exist_ok=True)
     try:
@@ -96,10 +63,10 @@ def _publish_thumbnail(path: Path, data: bytes, directory: Path) -> str:
 
 
 def write_thumbnail(
-    key: str, encoded: str, mime: str, cache_dir: Path | None = None, budget: list[int] | None = None
+    key: str, encoded: str, mime: str, cache_dir: Path | None = None, budget: bound.Budget | None = None
 ) -> str:
     blob = str(encoded or "").strip()
-    if not blob or len(blob) > MAX_THUMB_CHARS:
+    if not blob or len(blob) > bound.MAX_THUMB_CHARS:
         return ""
     directory = cache_dir or THUMB_DIR
     path = _thumb_path(key, mime, directory)
@@ -109,32 +76,28 @@ def write_thumbnail(
         info = None
     if info is not None and stat.S_ISREG(info.st_mode) and info.st_size > 0:
         return path.as_uri()
-    data = _decode_b64(_B64_WHITESPACE.sub("", blob), MAX_THUMB_BYTES)
+    data = bound.b64_decode(blob, bound.MAX_THUMB_BYTES, budget)
     if not data:
         return ""
-    if budget is not None:
-        if len(data) > budget[0]:
-            return ""
-        budget[0] -= len(data)
     return _publish_thumbnail(path, data, directory)
 
 
-def parse_attachment(raw, cache_dir: Path | None = None, budget: list[int] | None = None) -> dict | None:
+def parse_attachment(raw, cache_dir: Path | None = None, budget: bound.Budget | None = None) -> dict | None:
     if raw is None:
         return None
     if isinstance(raw, dict):
-        part_id = _to_int(raw.get("part_id") or raw.get("partId") or raw.get("partID"))
-        mime = clamp_str(raw.get("mime_type") or raw.get("mime") or raw.get("mimeType"))
+        part_id = bound.num(raw.get("part_id") or raw.get("partId") or raw.get("partID"))
+        mime = bound.label(raw.get("mime_type") or raw.get("mime") or raw.get("mimeType"))
         encoded = str(raw.get("encoded_thumbnail") or raw.get("thumb") or raw.get("encodedThumbnail") or "")
-        name = clamp_str(raw.get("unique_identifier") or raw.get("name") or raw.get("uniqueIdentifier"))
+        name = bound.label(raw.get("unique_identifier") or raw.get("name") or raw.get("uniqueIdentifier"))
     elif isinstance(raw, (list, tuple)) and len(raw) >= 2:
         try:
             part_id = int(raw[0] or 0)
         except (TypeError, ValueError):
             return None
-        mime = clamp_str(raw[1])
+        mime = bound.label(raw[1])
         encoded = str(raw[2] or "") if len(raw) > 2 else ""
-        name = clamp_str(raw[3]) if len(raw) > 3 else ""
+        name = bound.label(raw[3]) if len(raw) > 3 else ""
     else:
         return None
     kind = "image" if mime.lower().startswith("image/") else "file"
@@ -155,9 +118,9 @@ def parse_attachment(raw, cache_dir: Path | None = None, budget: list[int] | Non
 
 def parse_attachments(raw, cache_dir: Path | None = None) -> list[dict]:
     rows = []
-    budget = [MAX_MESSAGE_BYTES]
+    budget = bound.Budget(bound.MAX_MESSAGE_BYTES)
     items = raw if isinstance(raw, (list, tuple)) else []
-    for item in items[:MAX_ATTACHMENTS]:
+    for item in items[:bound.MAX_ATTACHMENTS]:
         parsed = parse_attachment(item, cache_dir, budget)
         if parsed:
             rows.append(parsed)
@@ -168,47 +131,60 @@ def parse_message(raw, cache_dir: Path | None = None) -> dict | None:
     if raw is None:
         return None
     if isinstance(raw, dict):
-        body = clamp_str(raw.get("body"), MAX_TEXT_CHARS)
-        addresses = [clamp_str(item) for item in clamp_list(raw.get("addresses"), MAX_ADDRESSES)]
+        body = bound.text(raw.get("body"))
+        addresses = bound.strings(raw.get("addresses"), bound.MAX_ADDRESSES)
         attachments = parse_attachments(raw.get("attachments") or [], cache_dir)
-        count = _to_int(raw.get("attachmentCount")) or len(attachments)
+        count = bound.num(raw.get("attachmentCount")) or len(attachments)
         return {
-            "event": _to_int(raw.get("event")),
+            "event": bound.num(raw.get("event")),
             "body": body,
             "addresses": addresses,
-            "date": _to_int(raw.get("date")),
-            "type": _to_int(raw.get("type")),
-            "read": _to_int(raw.get("read")),
-            "threadId": _to_int(raw.get("threadId")),
-            "id": _to_int(raw.get("id")),
-            "fromMe": bool(raw.get("fromMe")),
+            "date": bound.num(raw.get("date")),
+            "type": bound.num(raw.get("type")),
+            "read": bound.num(raw.get("read")),
+            "threadId": bound.num(raw.get("threadId")),
+            "id": bound.num(raw.get("id")),
+            "fromMe": bound.flag(raw.get("fromMe")),
             "attachmentCount": count,
             "attachments": attachments,
         }
     if not isinstance(raw, (list, tuple)) or len(raw) < 8:
         return None
+    raw_addrs = raw[2]
+    if not isinstance(raw_addrs, (list, tuple)):
+        raw_addrs = []
     addresses = []
-    for item in clamp_list(raw[2], MAX_ADDRESSES):
+    for item in raw_addrs:
+        if len(addresses) >= bound.MAX_ADDRESSES:
+            break
         if isinstance(item, (list, tuple)) and item:
-            addresses.append(clamp_str(item[0]))
+            addresses.append(bound.label(item[0]))
         else:
-            addresses.append(clamp_str(item))
+            addresses.append(bound.label(item))
     unique = []
     for address in addresses:
         if address and address not in unique:
             unique.append(address)
-    msg_type = _to_int(raw[4])
+    msg_type = bound.num(raw[4])
     attachments = parse_attachments(raw[9] if len(raw) > 9 else [], cache_dir)
     return {
-        "event": _to_int(raw[0]),
-        "body": clamp_str(raw[1], MAX_TEXT_CHARS),
+        "event": bound.num(raw[0]),
+        "body": bound.text(raw[1]),
         "addresses": unique,
-        "date": _to_int(raw[3]),
+        "date": bound.num(raw[3]),
         "type": msg_type,
-        "read": _to_int(raw[5]),
-        "threadId": _to_int(raw[6]),
-        "id": _to_int(raw[7]),
+        "read": bound.num(raw[5]),
+        "threadId": bound.num(raw[6]),
+        "id": bound.num(raw[7]),
         "fromMe": msg_type == 2,
         "attachmentCount": len(attachments),
         "attachments": attachments,
     }
+
+
+MAX_THUMB_CHARS = bound.MAX_THUMB_CHARS
+MAX_THUMB_BYTES = bound.MAX_THUMB_BYTES
+MAX_MESSAGE_BYTES = bound.MAX_MESSAGE_BYTES
+MAX_ATTACHMENTS = bound.MAX_ATTACHMENTS
+MAX_ADDRESSES = bound.MAX_ADDRESSES
+B64_CHUNK = bound.B64_CHUNK

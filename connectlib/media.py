@@ -5,13 +5,13 @@ import gi
 gi.require_version("Gio", "2.0")
 from gi.repository import GLib
 
+from . import bound
 from .bus import call, get_prop, plugin_path, unpack_string_list
-from .util import clamp_list, clamp_str, emit, fail
+from .util import emit, fail
 
 MPRIS_IFACE = "org.kde.kdeconnect.device.mprisremote"
 
 MEDIA_ACTIONS = ("Play", "Pause", "PlayPause", "Next", "Previous", "Stop")
-MAX_PLAYERS = 32
 
 
 def _props(bus, device_id: str) -> dict:
@@ -37,13 +37,13 @@ def read_media(bus, device_id: str) -> dict | None:
     props = _props(bus, device_id)
     if not isinstance(props.get("title"), str):
         return None
-    players = [clamp_str(item) for item in clamp_list(unpack_string_list(props.get("playerList")), MAX_PLAYERS)]
-    title = clamp_str(props.get("title"))
-    artist = clamp_str(props.get("artist"))
-    album = clamp_str(props.get("album"))
+    players = bound.strings(unpack_string_list(props.get("playerList")), MAX_PLAYERS)
+    title = bound.label(props.get("title"))
+    artist = bound.label(props.get("artist"))
+    album = bound.label(props.get("album"))
     is_playing = props.get("isPlaying") is True
     return {
-        "player": clamp_str(props.get("player")),
+        "player": bound.label(props.get("player")),
         "players": players,
         "title": title,
         "artist": artist,
@@ -94,3 +94,6 @@ def cmd_media_action(args: list[str]) -> None:
     bus, device_id = _require(args)
     send_action(bus, device_id, action)
     emit({"ok": True, "action": action})
+
+
+MAX_PLAYERS = bound.MAX_PLAYERS

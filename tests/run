@@ -21,6 +21,7 @@ run() {
 run "model" node tests/test_model.js
 run "manifest" python3 tests/test_manifest.py
 run "util" python3 tests/test_util.py
+run "bound" python3 tests/test_bound.py
 run "contacts" python3 tests/test_contacts.py
 run "messages" python3 tests/test_messages.py
 run "sms" python3 tests/test_sms.py

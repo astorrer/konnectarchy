@@ -5,18 +5,18 @@ import gi
 gi.require_version("Gio", "2.0")
 from gi.repository import GLib
 
+from . import bound
 from .bus import PROPS_IFACE, call, plugin_path
 from .devices import require_device
 from .notice import parse_notification
-from .util import clamp_id, clamp_list, clamp_str, emit, fail
+from .util import emit, fail
 
 NOTIF_IFACE = "org.kde.kdeconnect.device.notifications"
 ITEM_IFACE = "org.kde.kdeconnect.device.notifications.notification"
-MAX_NOTIFICATIONS = 128
 
 
 def notification_path(device_id: str, nid: str) -> str:
-    return f"{plugin_path(device_id, 'notifications')}/{clamp_id(nid)}"
+    return f"{plugin_path(device_id, 'notifications')}/{bound.ident(nid)}"
 
 
 def notification_ids(bus, device_id: str) -> list[str]:
@@ -28,7 +28,7 @@ def notification_ids(bus, device_id: str) -> list[str]:
         None,
         "(as)",
     )
-    return [clamp_str(item) for item in clamp_list(result.unpack()[0], MAX_NOTIFICATIONS)]
+    return bound.strings(result.unpack()[0], bound.MAX_NOTIFICATIONS)
 
 
 def notification_count(bus, device_id: str) -> int:
@@ -48,7 +48,7 @@ def _props(bus, device_id: str, nid: str) -> dict:
             GLib.Variant("(s)", (ITEM_IFACE,)),
             "(a{sv})",
         )
-        return dict(result.unpack()[0] or {})
+        return bound.mapping(result.unpack()[0] or {}, 64)
     except GLib.Error:
         return {}
 
@@ -123,3 +123,6 @@ def cmd_notification_reply(args: list[str]) -> None:
             GLib.Variant("(ss)", (nid, text)),
         )
     emit({"ok": True, "id": nid})
+
+
+MAX_NOTIFICATIONS = bound.MAX_NOTIFICATIONS
