@@ -14,10 +14,24 @@ from connectlib.util import (
     clamp_list,
     clamp_str,
     emit,
+    resolve_executable,
 )
 
 
 class UtilTest(unittest.TestCase):
+    def test_resolve_executable(self):
+        import os
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            exe = os.path.join(tmp, "prog")
+            with open(exe, "w", encoding="utf-8") as handle:
+                handle.write("#!/bin/sh\n")
+            os.chmod(exe, 0o755)
+            self.assertEqual(resolve_executable((exe,)), exe)
+            self.assertEqual(resolve_executable((os.path.join(tmp, "missing"), exe)), exe)
+            self.assertEqual(resolve_executable(("/nonexistent",)), "")
+            self.assertEqual(resolve_executable(()), "")
     def test_clamp_str(self):
         self.assertEqual(clamp_str(None), "")
         self.assertEqual(clamp_str(0), "")

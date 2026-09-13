@@ -27,7 +27,7 @@ from .bus import (
     unpack_string_list,
 )
 from .media import read_media
-from .util import clamp_list, clamp_str, emit, fail
+from .util import clamp_list, clamp_str, emit, fail, resolve_executable
 
 MAX_DEVICES = 32
 MAX_PLUGINS = 64
@@ -279,10 +279,7 @@ def cmd_share_text(args: list[str]) -> None:
 
 
 def _wl_paste_path() -> str:
-    for path in WL_PASTE_CANDIDATES:
-        if os.access(path, os.X_OK):
-            return path
-    return ""
+    return resolve_executable(WL_PASTE_CANDIDATES)
 
 
 def _terminate_group(proc, timeout: float = 2) -> None:

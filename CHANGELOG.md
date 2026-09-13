@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.6
+
+Every subprocess spawn in `connectlib/` now resolves its binary only from an explicit absolute-path candidate list via `util.resolve_executable` — no `shutil.which` or bare PATH lookup remains for `kdeconnectd`, `pkill`, `kdeconnect-sms`, or `wl-paste`. The whole remote-input pipeline (enumerate -> stat -> read -> parse -> cache -> emit) is audited stage-by-stage per the checklist in `AGENTS.md`, with emission, device, notification, conversation, thread, contact, attachment, and thumbnail caps enforced at the earliest enumeration step, not after materialization.
+
 ## 1.3.5
 
 Contact discovery no longer materializes the whole vCard directory. It scans incrementally with a hard entry budget (2048 entries) before the 512-contact and 8 MiB read limits apply, and refuses to follow symlinks, so a bloated or hostile synced contact directory cannot burn CPU or memory enumerating files it will never read. The clipboard fallback now launches a trusted `wl-paste` from a fixed candidate list, in a fresh process group with nonblocking descriptor reads under one absolute 5 second deadline, and TERM-then-KILLs and reaps the entire group, so a stalled or forking clipboard producer can no longer extend the read past the deadline or leak a pipe-holding descendant.

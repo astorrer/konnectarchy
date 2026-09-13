@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -20,12 +19,18 @@ from .bus import (
     session_bus,
 )
 from .devices import device_ids, read_device, sort_devices
-from .util import clamp_str, emit, fail
+from .util import clamp_str, emit, fail, resolve_executable
 
 DAEMON_CANDIDATES = (
     "/usr/lib/kdeconnectd",
     "/usr/libexec/kdeconnectd",
     "/usr/bin/kdeconnectd",
+    "/usr/local/bin/kdeconnectd",
+)
+
+PKILL_CANDIDATES = (
+    "/usr/bin/pkill",
+    "/bin/pkill",
 )
 
 AUTOSTART_PATH = Path.home() / ".config" / "autostart" / "kdeconnectd.desktop"
@@ -41,11 +46,7 @@ X-GNOME-Autostart-enabled=true
 
 
 def daemon_path() -> str | None:
-    for path in DAEMON_CANDIDATES:
-        if os.access(path, os.X_OK):
-            return path
-    found = shutil.which("kdeconnectd")
-    return found if found and os.access(found, os.X_OK) else None
+    return resolve_executable(DAEMON_CANDIDATES) or None
 
 
 def status_payload() -> dict:
@@ -107,7 +108,10 @@ def cmd_stop(_args: list[str]) -> None:
     try:
         call(bus, "/MainApplication", "org.qtproject.Qt.QCoreApplication", "quit", None)
     except GLib.Error:
-        subprocess.run(["pkill", "-u", str(os.getuid()), "-x", "kdeconnectd"], check=False)
+        pkill = resolve_executable(PKILL_CANDIDATES)
+        if not pkill:
+            fail("pkill is not installed")
+        subprocess.run([pkill, "-u", str(os.getuid()), "-x", "kdeconnectd"], check=False)
     emit({"ok": True, "running": False})
 
 

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import shutil
 import subprocess
 
 import gi
@@ -19,10 +18,15 @@ from .bus import (
 from .contacts import annotate_message, load_contacts
 from .devices import require_device
 from .messages import parse_message
-from .util import clamp_id, clamp_list, emit, fail
+from .util import clamp_id, clamp_list, emit, fail, resolve_executable
 
 MAX_CONVERSATIONS = 256
 MAX_THREAD_MESSAGES = 256
+
+KDE_CONNECT_SMS_CANDIDATES = (
+    "/usr/bin/kdeconnect-sms",
+    "/usr/local/bin/kdeconnect-sms",
+)
 
 
 def active_conversations(bus, device_id: str) -> list[dict]:
@@ -212,7 +216,7 @@ def cmd_sms_app(args: list[str]) -> None:
     try:
         call(bus, plugin_path(device_id, "sms"), SMS_IFACE, "launchApp", None)
     except GLib.Error:
-        app = shutil.which("kdeconnect-sms")
+        app = resolve_executable(KDE_CONNECT_SMS_CANDIDATES)
         if not app:
             fail("kdeconnect-sms is not installed")
         subprocess.Popen(

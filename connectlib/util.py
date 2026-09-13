@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 
@@ -9,6 +10,13 @@ MAX_TEXT_CHARS = 4096
 MAX_EMIT_BYTES = 4 << 20
 MAX_ID_CHARS = 64
 _ID_UNSAFE = re.compile(r"[^A-Za-z0-9_.-]+")
+
+
+def resolve_executable(candidates) -> str:
+    for path in candidates or ():
+        if os.access(path, os.X_OK):
+            return path
+    return ""
 
 
 def clamp_str(value, limit: int = MAX_LABEL_CHARS) -> str:
