@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.1
+
+Contact reads are now bound to the exact scanned vCard entry, closing a scan-to-read race. `bound.scan_dir` captures device/inode/owner/size for every entry, and the new `bound.read_scanned` re-opens the leaf relative to a directory descriptor (`O_DIRECTORY|O_NOFOLLOW`), refuses anything that is not the scanned regular file (`fstat` must match the entry's device/inode, owner, and size), and only then performs the budgeted descriptor read. A scanned vCard replaced by a symlink — or any other file — before the read can no longer redirect it; regression tests swap a scanned card for a symlink and prove the target is never opened. `bound.read_file` applies the same leaf-open flags for any path-based caller.
+
 ## 1.4.0
 
 All remote-input caps are consolidated into one trust boundary, `connectlib/bound.py`. Every string, id, number, list, and byte buffer from the paired phone (device ids and props, notifications, conversations, SMS threads, media metadata, vCard files, attachment thumbnails) now passes through small bounded readers — `text`, `label`, `ident`, `num`, `flag`, `strings`, `mapping`, `Budget`, `scan_dir`, `read_file`, `b64_decode` — with every cap defined in one file, instead of ad-hoc `clamp_*` calls at each parse site. Output is byte-for-byte unchanged.

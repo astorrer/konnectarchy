@@ -3,6 +3,7 @@ from __future__ import annotations
 import binascii
 import os
 import re
+import stat
 
 from .util import clamp_id
 
@@ -97,7 +98,7 @@ class Budget:
         return True
 
 
-def scan_dir(directory, suffix, entry_budget) -> list[tuple[str, str, int, int]]:
+def scan_dir(directory, suffix, entry_budget) -> list[tuple[str, str, int, int, int, int, int, int]]:
     entries = []
     seen = 0
     try:
@@ -114,19 +115,90 @@ def scan_dir(directory, suffix, entry_budget) -> list[tuple[str, str, int, int]]
                     info = entry.stat(follow_symlinks=False)
                 except OSError:
                     continue
-                entries.append((entry.name, entry.path, info.st_size, info.st_mtime_ns))
+                entries.append(
+                    (
+                        entry.name,
+                        entry.path,
+                        info.st_size,
+                        info.st_mtime_ns,
+                        info.st_dev,
+                        info.st_ino,
+                        info.st_uid,
+                        info.st_mode,
+                    )
+                )
     except OSError:
         return []
     return entries
 
 
-def read_file(path, max_chars, budget) -> tuple[str, bool] | None:
+def _open_regular(path, dir_fd=None) -> int | None:
+    flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
     try:
-        with open(path, encoding="utf-8", errors="replace") as handle:
-            text_ = handle.read(max_chars)
+        return os.open(path, flags, dir_fd=dir_fd)
     except OSError:
         return None
+
+
+def _read_bounded(fd, max_chars, budget) -> tuple[str, bool]:
+    chunks = []
+    remaining = max_chars
+    while remaining > 0:
+        try:
+            chunk = os.read(fd, min(65536, remaining))
+        except OSError:
+            break
+        if not chunk:
+            break
+        chunks.append(chunk)
+        remaining -= len(chunk)
+    text_ = b"".join(chunks).decode("utf-8", errors="replace")
     return text_, not budget.spend(len(text_.encode("utf-8", errors="replace")))
+
+
+def read_scanned(directory, entry, max_chars: int, budget) -> tuple[str, bool] | None:
+    name, _path, size, _mtime, dev, ino, uid, _mode = entry
+    try:
+        dir_fd = os.open(
+            directory,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+        )
+    except OSError:
+        return None
+    try:
+        fd = _open_regular(name, dir_fd)
+        if fd is None:
+            return None
+        try:
+            try:
+                info = os.fstat(fd)
+            except OSError:
+                return None
+            if not stat.S_ISREG(info.st_mode):
+                return None
+            if info.st_dev != dev or info.st_ino != ino or info.st_uid != uid or info.st_size != size:
+                return None
+            return _read_bounded(fd, max_chars, budget)
+        finally:
+            os.close(fd)
+    finally:
+        os.close(dir_fd)
+
+
+def read_file(path, max_chars, budget) -> tuple[str, bool] | None:
+    fd = _open_regular(path)
+    if fd is None:
+        return None
+    try:
+        try:
+            info = os.fstat(fd)
+        except OSError:
+            return None
+        if not stat.S_ISREG(info.st_mode):
+            return None
+        return _read_bounded(fd, max_chars, budget)
+    finally:
+        os.close(fd)
 
 
 def b64_decode(compact, max_bytes, budget=None) -> bytes | None:

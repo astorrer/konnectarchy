@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 import base64
 import os
+import stat
 import sys
 import tempfile
 import unittest
@@ -38,6 +39,7 @@ from connectlib.bound import (
     mapping,
     num,
     read_file,
+    read_scanned,
     scan_dir,
     strings,
     text,
@@ -261,11 +263,15 @@ class BoundScanDirTest(unittest.TestCase):
             p.write_text("abc")
             result = scan_dir(d, ".txt", 10)
             self.assertEqual(len(result), 1)
-            name, path, size, mtime = result[0]
+            name, path, size, mtime, dev, ino, uid, mode = result[0]
             self.assertEqual(name, "hello.txt")
             self.assertEqual(path, str(p))
             self.assertEqual(size, 3)
             self.assertIsInstance(mtime, int)
+            self.assertIsInstance(dev, int)
+            self.assertIsInstance(ino, int)
+            self.assertIsInstance(uid, int)
+            self.assertTrue(stat.S_ISREG(mode))
 
     def test_budget_counts_total_entries_not_matches(self):
         from types import SimpleNamespace
@@ -275,7 +281,14 @@ class BoundScanDirTest(unittest.TestCase):
             return SimpleNamespace(
                 name=name,
                 is_file=lambda **kwargs: True,
-                stat=lambda **kwargs: SimpleNamespace(st_size=1, st_mtime_ns=2),
+                stat=lambda **kwargs: SimpleNamespace(
+                    st_size=1,
+                    st_mtime_ns=2,
+                    st_dev=0,
+                    st_ino=0,
+                    st_uid=0,
+                    st_mode=0o100644,
+                ),
             )
 
         class FakeScandir:
@@ -354,6 +367,80 @@ class BoundReadFileTest(unittest.TestCase):
             b = Budget(1000)
             result = read_file(str(p), 100, b)
             self.assertEqual(result[0], "héllo wörld")
+
+
+class BoundReadScannedTest(unittest.TestCase):
+    def _scan_one(self, d, name="card.txt"):
+        return scan_dir(d, ".txt", 100)[0]
+
+    def _budget(self):
+        return Budget(1 << 20)
+
+    def test_matches_identity(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d, "card.txt")
+            p.write_text("hello")
+            entry = self._scan_one(d)
+            result = read_scanned(d, entry, 100, self._budget())
+            self.assertIsNotNone(result)
+            self.assertEqual(result[0], "hello")
+
+    def test_rejects_symlink_swap_before_read(self):
+        with tempfile.TemporaryDirectory() as d:
+            victim = Path(d, "victim.txt")
+            victim.write_text("BEGIN:VCARD\nFN:Victim\nEND:VCARD\n")
+            p = Path(d, "card.txt")
+            p.write_text("BEGIN:VCARD\nFN:Real\nEND:VCARD\n")
+            entry = self._scan_one(d)
+            p.unlink()
+            os.symlink(victim, p)
+            result = read_scanned(d, entry, 100, self._budget())
+            self.assertIsNone(result)
+
+    def test_rejects_replaced_regular_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d, "card.txt")
+            p.write_text("BEGIN:VCARD\nFN:Real\nEND:VCARD\n")
+            entry = self._scan_one(d)
+            p.unlink()
+            p.write_text("BEGIN:VCARD\nFN:Impostor\nEND:VCARD\n")
+            result = read_scanned(d, entry, 100, self._budget())
+            self.assertIsNone(result)
+
+    def test_rejects_resized_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d, "card.txt")
+            p.write_text("abcdef")
+            entry = self._scan_one(d)
+            p.write_text("ab")
+            result = read_scanned(d, entry, 100, self._budget())
+            self.assertIsNone(result)
+
+    def test_missing_entry(self):
+        with tempfile.TemporaryDirectory() as d:
+            entry = ("ghost.txt", "/x/ghost.txt", 3, 0, 0, 0, 0, 0o100644)
+            self.assertIsNone(read_scanned(d, entry, 100, self._budget()))
+
+    def test_missing_dir(self):
+        entry = ("card.txt", "/nonexistent/card.txt", 3, 0, 0, 0, 0, 0o100644)
+        self.assertIsNone(read_scanned("/nonexistent", entry, 100, self._budget()))
+
+    def test_caps_read(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d, "card.txt")
+            p.write_text("abcdef")
+            entry = self._scan_one(d)
+            result = read_scanned(d, entry, 3, self._budget())
+            self.assertEqual(result[0], "abc")
+
+    def test_budget_exhausted(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d, "card.txt")
+            p.write_text("abc")
+            entry = self._scan_one(d)
+            result = read_scanned(d, entry, 100, Budget(2))
+            self.assertIsNotNone(result)
+            self.assertTrue(result[1])
 
 
 class BoundB64DecodeTest(unittest.TestCase):

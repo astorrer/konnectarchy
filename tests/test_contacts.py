@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from connectlib import contacts
+from connectlib import bound, contacts
 from connectlib.util import MAX_LABEL_CHARS
 
 
@@ -133,6 +133,28 @@ END:VCARD
             loaded = contacts.load_contacts("syms", Path(tmp))
             self.assertEqual(len(loaded), 1)
             self.assertEqual(loaded[0]["name"], "Ok")
+
+    def test_swap_for_symlink_before_read(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = root / "kdeconnect-swap"
+            folder.mkdir()
+            victim = root / "victim.vcf"
+            victim.write_text(
+                "BEGIN:VCARD\nFN:Victim\nTEL:+15550000100\nEND:VCARD\n", encoding="utf-8"
+            )
+            card = folder / "card.vcf"
+            card.write_text(
+                "BEGIN:VCARD\nFN:Real\nTEL:+15550000101\nEND:VCARD\n", encoding="utf-8"
+            )
+            entry = contacts._scan_entries(folder)[0]
+            card.unlink()
+            os.symlink(victim, card)
+            result = bound.read_scanned(
+                folder, entry, contacts.MAX_VCARD_CHARS, bound.Budget(contacts.MAX_CONTACT_BYTES)
+            )
+            self.assertIsNone(result)
+            self.assertEqual(contacts.load_contacts("swap", root), [])
 
     def test_load_contacts_sanitizes_device_id(self):
         with tempfile.TemporaryDirectory() as tmp:

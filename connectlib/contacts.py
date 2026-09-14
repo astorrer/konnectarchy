@@ -101,27 +101,32 @@ def parse_vcard(text: str) -> dict | None:
     return {"name": display, "phones": phones, "emails": emails}
 
 
+def _scan_entries(directory: Path) -> list[tuple]:
+    return bound.scan_dir(directory, ".vcf", bound.MAX_SCAN_ENTRIES)
+
+
 def _scan_vcards(directory: Path) -> tuple[list[str], int]:
-    entries = bound.scan_dir(directory, ".vcf", bound.MAX_SCAN_ENTRIES)
-    paths = [p for (_n, p, _s, _m) in entries]
-    newest = max((m for (_n, _p, _s, m) in entries), default=0)
+    entries = _scan_entries(directory)
+    paths = [p for (_n, p, _s, _m, *_rest) in entries]
+    newest = max((m for (_n, _p, _s, m, *_rest) in entries), default=0)
     return paths, newest
 
 
 def load_contacts(device_id: str, root: Path | None = None) -> list[dict]:
     directory = (root or VCARDS_ROOT) / f"kdeconnect-{bound.ident(device_id)}"
     cache_key = str(directory)
-    files, newest = _scan_vcards(directory)
-    stamp = (len(files), newest)
+    entries = _scan_entries(directory)
+    newest = max((m for (_n, _p, _s, m, *_rest) in entries), default=0)
+    stamp = (len(entries), newest)
     cached = _CONTACTS_CACHE.get(cache_key)
     if cached and cached[0] == stamp:
         return cached[1]
     contacts: list[dict] = []
     budget = bound.Budget(bound.MAX_CONTACT_BYTES)
-    for path in files:
+    for entry in entries:
         if len(contacts) >= MAX_CONTACTS:
             break
-        result = bound.read_file(path, bound.MAX_VCARD_CHARS, budget)
+        result = bound.read_scanned(directory, entry, bound.MAX_VCARD_CHARS, budget)
         if result is None:
             continue
         text, over = result
