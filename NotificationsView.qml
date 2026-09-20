@@ -37,7 +37,7 @@ ColumnLayout {
   signal backRequested()
   signal releaseEditor()
 
-  onNotificationsChanged: listIndex = Math.max(0, Math.min(listMax(), listIndex))
+  onNotificationsChanged: listIndex = Math.max(listMin(), Math.min(listMax(), listIndex))
 
   spacing: Style.space(10)
 
@@ -60,14 +60,18 @@ ColumnLayout {
     Qt.callLater(function() { if (draftField) draftField.forceActiveFocus() })
   }
 
+  function listMin() {
+    return hasDismissable ? -1 : 0
+  }
+
   function listMax() {
     if (notifications.length === 0) return 0
-    return notifications.length - 1 + (hasDismissable ? 1 : 0)
+    return notifications.length - 1
   }
 
   function currentItem() {
     if (page === "reply") return draftField
-    if (hasDismissable && listIndex === notifications.length) return dismissAllRow
+    if (hasDismissable && listIndex < 0) return dismissAllRow
     if (notifRepeater) return notifRepeater.itemAt(listIndex)
     return backButton
   }
@@ -81,12 +85,12 @@ ColumnLayout {
     if (dy === 0) return
     cursorActive = true
     if (page === "reply") return
-    listIndex = Math.max(0, Math.min(listMax(), listIndex + dy))
+    listIndex = Math.max(listMin(), Math.min(listMax(), listIndex + dy))
   }
 
   function scrollCursorIntoView() {
     var item = currentItem()
-    if (!item || item === draftField || item === backButton) return
+    if (!item || item === draftField || item === backButton || item === dismissAllRow) return
     Qt.callLater(function() { Model.scrollFlickToItem(notifyFlick, item, Style.space(8)) })
   }
 
@@ -117,7 +121,7 @@ ColumnLayout {
       sendDraft()
       return
     }
-    if (hasDismissable && listIndex === notifications.length) {
+    if (hasDismissable && listIndex < 0) {
       dismissAllVisible()
       return
     }
@@ -126,14 +130,18 @@ ColumnLayout {
     if (item.canReply) openReply(item)
   }
 
+  function dismissItem(item) {
+    if (!service || !deviceId || !item || !item.dismissable) return
+    service.dismissNotification(deviceId, item.id)
+  }
+
   function dismissCurrent() {
     if (page !== "list" || !service) return
-    if (hasDismissable && listIndex === notifications.length) {
+    if (hasDismissable && listIndex < 0) {
       dismissAllVisible()
       return
     }
-    var item = notificationAtCursor()
-    if (item && item.dismissable) service.dismissNotification(deviceId, item.id)
+    dismissItem(notificationAtCursor())
   }
 
   function dismissAllVisible() {
@@ -214,6 +222,27 @@ ColumnLayout {
     onTriggered: root.copiedHint = ""
   }
 
+  Button {
+    id: dismissAllRow
+    visible: root.hasDismissable && root.page === "list"
+    Layout.fillWidth: true
+    leftAlign: true
+    text: "Dismiss all"
+    iconText: "󰆴"
+    bordered: true
+    foreground: root.foreground
+    fontFamily: root.fontFamily
+    hasCursor: root.cursorActive && root.page === "list" && root.listIndex < 0
+    onClicked: root.dismissAllVisible()
+    onHovered: function(on) { if (on) { root.cursorActive = true; root.listIndex = -1 } }
+  }
+
+  PanelSeparator {
+    visible: root.hasDismissable && root.page === "list"
+    Layout.fillWidth: true
+    foreground: root.foreground
+  }
+
   Flickable {
     id: notifyFlick
     Layout.fillWidth: true
@@ -254,19 +283,6 @@ ColumnLayout {
         foreground: root.foreground
         readonly property var snips: Model.notificationCopySnippets(modelData)
         implicitHeight: notifInner.implicitHeight + Style.spacing.rowPaddingX
-        MouseArea {
-          anchors.fill: parent
-          hoverEnabled: true
-          cursorShape: Qt.PointingHandCursor
-          onEntered: {
-            root.cursorActive = true
-            root.listIndex = notifRow.index
-          }
-          onClicked: {
-            root.listIndex = notifRow.index
-            if (notifRow.modelData && notifRow.modelData.canReply) root.openReply(notifRow.modelData)
-          }
-        }
         RowLayout {
           id: notifInner
           anchors.left: parent.left
@@ -275,84 +291,99 @@ ColumnLayout {
           anchors.leftMargin: Style.space(10)
           anchors.rightMargin: Style.space(10)
           spacing: Style.space(8)
-          ColumnLayout {
+          Item {
             Layout.fillWidth: true
-            spacing: Style.space(1)
-            RowLayout {
-              Layout.fillWidth: true
+            implicitHeight: textCol.implicitHeight
+            MouseArea {
+              anchors.fill: parent
+              hoverEnabled: true
+              cursorShape: Qt.PointingHandCursor
+              onEntered: {
+                root.cursorActive = true
+                root.listIndex = notifRow.index
+              }
+              onClicked: {
+                root.listIndex = notifRow.index
+                if (notifRow.modelData && notifRow.modelData.canReply) root.openReply(notifRow.modelData)
+              }
+            }
+            ColumnLayout {
+              id: textCol
+              width: parent.width
+              spacing: Style.space(1)
+              RowLayout {
+                Layout.fillWidth: true
+                Text {
+                  textFormat: Text.PlainText
+                  text: Model.notificationTitle(notifRow.modelData)
+                  color: root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.body
+                  elide: Text.ElideRight
+                  Layout.fillWidth: true
+                }
+                Text {
+                  visible: !!(notifRow.modelData && notifRow.modelData.canReply)
+                  text: "Reply"
+                  color: root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                }
+              }
               Text {
                 textFormat: Text.PlainText
-                text: Model.notificationTitle(notifRow.modelData)
-                color: root.foreground
+                text: Model.notificationMeta(notifRow.modelData)
+                color: root.dim
                 font.family: root.fontFamily
-                font.pixelSize: Style.font.body
+                font.pixelSize: Style.font.caption
                 elide: Text.ElideRight
                 Layout.fillWidth: true
               }
               Text {
-                visible: !!(notifRow.modelData && notifRow.modelData.canReply)
-                text: "Reply"
-                color: root.dim
+                textFormat: Text.PlainText
+                text: Model.notificationPreview(notifRow.modelData)
+                color: root.foreground
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
-              }
-            }
-            Text {
-              textFormat: Text.PlainText
-              text: Model.notificationMeta(notifRow.modelData)
-              color: root.dim
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              elide: Text.ElideRight
-              Layout.fillWidth: true
-            }
-            Text {
-              textFormat: Text.PlainText
-              text: Model.notificationPreview(notifRow.modelData)
-              color: root.foreground
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              wrapMode: Text.WordWrap
-              Layout.fillWidth: true
-            }
-            Repeater {
-              model: notifRow.snips
-              CopyChip {
-                required property var modelData
-                snippet: modelData
+                wrapMode: Text.WordWrap
                 Layout.fillWidth: true
-                foreground: root.foreground
-                fontFamily: root.fontFamily
-                onActivated: {
-                  root.listIndex = notifRow.index
-                  root.copySnippet(modelData)
+              }
+              Repeater {
+                model: notifRow.snips
+                CopyChip {
+                  required property var modelData
+                  snippet: modelData
+                  Layout.fillWidth: true
+                  foreground: root.foreground
+                  fontFamily: root.fontFamily
+                  onActivated: {
+                    root.listIndex = notifRow.index
+                    root.copySnippet(modelData)
+                  }
                 }
               }
             }
           }
+          PanelActionButton {
+            visible: !!(notifRow.modelData && notifRow.modelData.dismissable)
+            iconText: "󰅖"
+            tooltipText: "Dismiss"
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            Layout.alignment: Qt.AlignTop
+            hasCursor: root.cursorActive && root.page === "list" && root.listIndex === notifRow.index
+            onClicked: {
+              root.listIndex = notifRow.index
+              root.dismissItem(notifRow.modelData)
+            }
+            onHovered: function(on) {
+              if (!on) return
+              root.cursorActive = true
+              root.listIndex = notifRow.index
+            }
+          }
         }
       }
-    }
-
-    PanelSeparator {
-      width: parent.width
-      visible: root.hasDismissable
-      foreground: root.foreground
-    }
-
-    Button {
-      id: dismissAllRow
-      visible: root.hasDismissable
-      width: parent.width
-      leftAlign: true
-      text: "Dismiss all"
-      iconText: "󰆴"
-      bordered: true
-      foreground: root.foreground
-      fontFamily: root.fontFamily
-      hasCursor: root.cursorActive && root.page === "list" && root.listIndex === root.notifications.length
-      onClicked: root.dismissAllVisible()
-      onHovered: function(on) { if (on) { root.cursorActive = true; root.listIndex = root.notifications.length } }
     }
     }
   }

@@ -241,10 +241,20 @@ Item {
     runSms("notifications", ["notifications", id])
   }
 
+  function dropNotification(nid) {
+    var nidStr = String(nid)
+    var keep = []
+    for (var i = 0; i < notifications.length; i++) {
+      if (String((notifications[i] && notifications[i].id) || "") !== nidStr) keep.push(notifications[i])
+    }
+    if (keep.length !== notifications.length) notifications = keep
+  }
+
   function dismissNotification(id, nid) {
     if (!id || nid === undefined || nid === null || nid === "") return
     _notifyDeviceId = id
     _reloadNotifications = true
+    dropNotification(nid)
     runAction(["notification-dismiss", id, String(nid)], "Dismissing…")
   }
 
@@ -252,6 +262,7 @@ Item {
     if (!id) return
     _notifyDeviceId = id
     _reloadNotifications = true
+    notifications = []
     runAction(["notification-dismiss", id, "--all"], "Dismissing…")
   }
 

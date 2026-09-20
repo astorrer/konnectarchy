@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.2
+
+Dismiss all stays at the top of the notification list, so it is never below the last row. Each notification has a dismiss button; `d` still dismisses the highlighted one.
+
 ## 1.4.1
 
 Contact reads are now bound to the exact scanned vCard entry, closing a scan-to-read race. `bound.scan_dir` captures device/inode/owner/size for every entry, and the new `bound.read_scanned` re-opens the leaf relative to a directory descriptor (`O_DIRECTORY|O_NOFOLLOW`), refuses anything that is not the scanned regular file (`fstat` must match the entry's device/inode, owner, and size), and only then performs the budgeted descriptor read. A scanned vCard replaced by a symlink — or any other file — before the read can no longer redirect it; regression tests swap a scanned card for a symlink and prove the target is never opened. `bound.read_file` applies the same leaf-open flags for any path-based caller.

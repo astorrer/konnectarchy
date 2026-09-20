@@ -24,6 +24,7 @@ For names in SMS: KDE Connect → this computer → **Contacts**. Grant permissi
 - New message looks up names from synced contacts. You can still type a number.
 - 2FA codes and http(s) links get a copy chip. They are copied, never opened.
 - Notifications, messages, ping, ring, clipboard, and file share are in the panel.
+- In Notifications, dismiss one with the row button or `d`. Dismiss all stays at the top.
 - When the phone is playing something, Now playing shows the track with previous, play/pause, and next. It hides when idle.
 - Desktop popups from KDE Connect still appear. The panel keeps the ones that are still on the phone.
 
